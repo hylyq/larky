@@ -13,9 +13,45 @@
 
 ## 安装
 
+### 本地开发
+
 ```bash
 uv sync
 ```
+
+### 在其他项目中使用
+
+#### 方式一：本地路径安装（推荐开发时使用）
+
+```bash
+# 使用 uv 添加本地包（可编辑模式）
+uv add --editable /path/to/larky
+
+# 或在 pyproject.toml 中添加
+[project]
+dependencies = [
+    "larky @ file:///path/to/larky",
+]
+```
+
+#### 方式二：Git 仓库安装
+
+```bash
+uv add git+https://github.com/yourname/larky.git
+```
+
+#### 方式三：发布到 PyPI
+
+```bash
+# 在 larky 项目目录下构建并发布
+uv build
+uv publish
+
+# 然后在其他项目中安装
+uv add larky
+```
+
+**注意**：依赖会自动安装，无需手动处理。
 
 ## 配置
 
