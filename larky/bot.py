@@ -18,6 +18,7 @@ class LarkBot:
         verification_token: str = "",
         encrypt_key: str = "",
         lark_host: str = "https://open.feishu.cn",
+        open_id: str = "",
     ):
         if config:
             self.config = config
@@ -28,6 +29,7 @@ class LarkBot:
                 verification_token=verification_token,
                 encrypt_key=encrypt_key,
                 lark_host=lark_host,
+                open_id=open_id,
             )
         
         self._access_token: TenantAccessToken | None = None
@@ -35,6 +37,10 @@ class LarkBot:
         self._message_handlers: list[Callable[[Message], Any]] = []
         self._command_handlers: dict[str, Callable[[Message, list[str]], Any]] = {}
         self._command_prefix: str = "/"
+
+    @classmethod
+    def from_env(cls) -> "LarkBot":
+        return cls(config=LarkConfig.from_env())
 
     async def __aenter__(self) -> "LarkBot":
         await self.start()
@@ -123,9 +129,12 @@ class LarkBot:
         elif email:
             receive_id_type = "email"
             receive_id = email
+        elif self.config.open_id:
+            receive_id_type = "open_id"
+            receive_id = self.config.open_id
         
         if not receive_id_type:
-            raise ValueError("Must provide one of: open_id, user_id, chat_id, email")
+            raise ValueError("Must provide one of: open_id, user_id, chat_id, email, or set OPEN_ID in config")
         
         import json
         content = json.dumps({"text": text})
@@ -166,9 +175,12 @@ class LarkBot:
         elif email:
             receive_id_type = "email"
             receive_id = email
+        elif self.config.open_id:
+            receive_id_type = "open_id"
+            receive_id = self.config.open_id
         
         if not receive_id_type:
-            raise ValueError("Must provide one of: open_id, user_id, chat_id, email")
+            raise ValueError("Must provide one of: open_id, user_id, chat_id, email, or set OPEN_ID in config")
         
         if isinstance(content, dict):
             import json
@@ -193,6 +205,14 @@ class LarkBot:
             text,
             open_id=message.sender_open_id,
         )
+
+    async def get_user_info(self, user_id: str, user_id_type: str = "open_id") -> dict[str, Any]:
+        result = await self._request(
+            "GET",
+            "user/v1/user_info",
+            params={"user_id": user_id, "user_id_type": user_id_type},
+        )
+        return result
 
     def on_message(self, handler: Callable[[Message], Any]) -> Callable[[Message], Any]:
         self._message_handlers.append(handler)

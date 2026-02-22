@@ -9,6 +9,7 @@ class LarkConfig:
     verification_token: str = ""
     encrypt_key: str = ""
     lark_host: str = "https://open.feishu.cn"
+    open_id: str = ""
 
     @classmethod
     def from_env(cls) -> "LarkConfig":
@@ -18,4 +19,5 @@ class LarkConfig:
             verification_token=os.getenv("VERIFICATION_TOKEN", ""),
             encrypt_key=os.getenv("ENCRYPT_KEY", ""),
             lark_host=os.getenv("LARK_HOST", "https://open.feishu.cn"),
+            open_id=os.getenv("OPEN_ID", ""),
         )

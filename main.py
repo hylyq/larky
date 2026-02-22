@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import os
 
 from dotenv import load_dotenv
 
@@ -13,13 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 async def main():
-    bot = LarkBot(
-        app_id=os.getenv("APP_ID", ""),
-        app_secret=os.getenv("APP_SECRET", ""),
-        verification_token=os.getenv("VERIFICATION_TOKEN", ""),
-        encrypt_key=os.getenv("ENCRYPT_KEY", ""),
-        lark_host=os.getenv("LARK_HOST", "https://open.feishu.cn"),
-    )
+    bot = LarkBot.from_env()
 
     @bot.on_message
     async def handle_message(message: Message):
@@ -43,7 +36,20 @@ async def main():
         else:
             await bot.reply_text(message, "Usage: /alert <level>")
 
+    @bot.on_command("getid")
+    async def handle_getid(message: Message, args: list[str]):
+        open_id = message.sender_open_id
+        if open_id:
+            await bot.reply_text(message, f"Your Open ID: {open_id}")
+        else:
+            await bot.reply_text(message, "Unable to get your Open ID.")
+
     async with bot:
+        if bot.config.open_id:
+            logger.info(f"Default OPEN_ID configured: {bot.config.open_id}")
+        else:
+            logger.info("No default OPEN_ID configured. Send /getid to get your open_id.")
+
         server = WebhookServer(bot, host="0.0.0.0", port=3000)
         await server.start()
         

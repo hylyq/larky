@@ -63,6 +63,7 @@ APP_SECRET=xxx
 VERIFICATION_TOKEN=xxx
 ENCRYPT_KEY=xxx
 LARK_HOST=https://open.feishu.cn
+OPEN_ID=ou_xxx
 ```
 
 配置项说明：
@@ -71,6 +72,7 @@ LARK_HOST=https://open.feishu.cn
 - `VERIFICATION_TOKEN`: 事件订阅的验证 Token
 - `ENCRYPT_KEY`: 消息加密 Key（如启用加密则必填）
 - `LARK_HOST`: 飞书 API 地址，默认 `https://open.feishu.cn`
+- `OPEN_ID`: 默认接收消息的用户 open_id（可选，设置后发送消息无需指定接收者）
 
 ## 快速开始
 
@@ -81,15 +83,29 @@ import asyncio
 from larky import LarkBot
 
 async def main():
-    bot = LarkBot(
-        app_id="your_app_id",
-        app_secret="your_app_secret",
-    )
+    # 从环境变量加载配置（包括 OPEN_ID）
+    bot = LarkBot.from_env()
     
     async with bot:
+        # 如果设置了 OPEN_ID，可以直接发送消息
+        await bot.send_text("Hello!")
+        
+        # 也可以显式指定接收者
         await bot.send_text("Hello!", open_id="ou_xxx")
 
 asyncio.run(main())
+```
+
+### 获取 Open ID
+
+用户发送 `/getid` 命令，机器人会回复用户的 open_id：
+
+```python
+@bot.on_command("getid")
+async def handle_getid(message: Message, args: list[str]):
+    open_id = message.sender_open_id
+    if open_id:
+        await bot.reply_text(message, f"Your Open ID: {open_id}")
 ```
 
 ### 启动 Webhook 服务器
@@ -127,17 +143,12 @@ bot = LarkBot.from_env()
 
 async def send_trade_alert(symbol: str, action: str, price: float):
     async with bot:
-        await bot.send_text(
-            f"Trade Alert: {action} {symbol} @ {price}",
-            open_id="your_open_id"
-        )
+        # 使用配置的默认 OPEN_ID
+        await bot.send_text(f"Trade Alert: {action} {symbol} @ {price}")
 
 async def send_risk_warning(message: str):
     async with bot:
-        await bot.send_text(
-            f"Risk Warning: {message}",
-            open_id="your_open_id"
-        )
+        await bot.send_text(f"Risk Warning: {message}")
 ```
 
 ## API
@@ -151,6 +162,7 @@ bot = LarkBot(
     verification_token="xxx",  # 可选，用于验证事件请求
     encrypt_key="xxx",         # 可选，用于解密消息
     lark_host="https://open.feishu.cn",
+    open_id="ou_xxx",          # 可选，默认接收消息的用户
 )
 
 # 或从环境变量加载
@@ -160,13 +172,26 @@ bot = LarkBot.from_env()
 #### 发送消息
 
 ```python
-# 发送文本消息
+# 发送文本消息（使用默认 open_id）
+await bot.send_text("Hello")
+
+# 发送文本消息（指定接收者）
 await bot.send_text("Hello", open_id="ou_xxx")
 await bot.send_text("Hello", chat_id="oc_xxx")
 await bot.send_text("Hello", user_id="xxx")
 
 # 回复消息
 await bot.reply_text(message, "Reply")
+```
+
+#### 获取用户信息
+
+```python
+# 从消息中获取发送者的 open_id
+open_id = message.sender_open_id
+
+# 获取用户详细信息
+user_info = await bot.get_user_info("ou_xxx")
 ```
 
 #### 注册处理器
