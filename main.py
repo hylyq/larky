@@ -1,13 +1,17 @@
+"""飞书机器人主程序"""
+
 import asyncio
 import logging
-
+from datetime import datetime
 from dotenv import load_dotenv
-
 from larky import LarkBot, Message, WebhookServer
 
 load_dotenv()
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 logger = logging.getLogger(__name__)
 
 
@@ -15,50 +19,51 @@ async def main():
     bot = LarkBot.from_env()
 
     @bot.on_message
-    async def handle_message(message: Message):
-        text = message.get_text()
-        logger.info(f"Received message: {text}")
-        await bot.reply_text(message, f"Received: {text}")
+    async def on_message(msg: Message):
+        if not msg.is_command("/"):
+            await bot.reply_text(msg, f"收到: {msg.get_text()}\n发送 /help 查看命令")
 
-    @bot.on_command("ping")
-    async def handle_ping(message: Message, args: list[str]):
-        await bot.reply_text(message, "Pong!")
+    @bot.on_command("help")
+    async def cmd_help(msg: Message, args: list):
+        help_text = """🤖 机器人命令列表：
 
-    @bot.on_command("status")
-    async def handle_status(message: Message, args: list[str]):
-        await bot.reply_text(message, "System running normally.")
+/help       - 显示此帮助信息
+/time       - 显示当前时间
+/echo <文本> - 回显你输入的内容
+/info       - 显示你的用户信息
 
-    @bot.on_command("alert")
-    async def handle_alert(message: Message, args: list[str]):
-        if args:
-            level = args[0]
-            await bot.reply_text(message, f"Alert level set to: {level}")
-        else:
-            await bot.reply_text(message, "Usage: /alert <level>")
+直接发送消息，机器人也会自动回复！"""
+        await bot.reply_text(msg, help_text)
 
-    @bot.on_command("getid")
-    async def handle_getid(message: Message, args: list[str]):
-        open_id = message.sender_open_id
-        if open_id:
-            await bot.reply_text(message, f"Your Open ID: {open_id}")
-        else:
-            await bot.reply_text(message, "Unable to get your Open ID.")
+    @bot.on_command("time")
+    async def cmd_time(msg: Message, args: list):
+        await bot.reply_text(msg, f"⏰ {datetime.now():%Y-%m-%d %H:%M:%S}")
+
+    @bot.on_command("echo")
+    async def cmd_echo(msg: Message, args: list):
+        await bot.reply_text(msg, "📢 " + (" ".join(args) if args else "请输入内容"))
+
+    @bot.on_command("info")
+    async def cmd_info(msg: Message, args: list):
+        info_text = f"""👤 用户信息详情：
+
+消息ID：    {msg.message_id}
+聊天ID：    {msg.chat_id}
+发送者ID：  {msg.sender_id or 'N/A'}
+OpenID：    {msg.sender_open_id}
+消息类型：  {msg.msg_type.value}
+发送时间：  {msg.create_time or 'N/A'}"""
+        await bot.reply_text(msg, info_text)
 
     async with bot:
-        if bot.config.open_id:
-            logger.info(f"Default OPEN_ID configured: {bot.config.open_id}")
-        else:
-            logger.info("No default OPEN_ID configured. Send /getid to get your open_id.")
-
-        server = WebhookServer(bot, host="0.0.0.0", port=3000)
+        await bot.send_text("🤖 机器人已启动！")
+        server = WebhookServer(bot, host="0.0.0.0", port=3000, path="/")
         await server.start()
-        
+        logger.info("Webhook 服务器已启动，等待接收消息...")
         try:
             while True:
-                await asyncio.sleep(3600)
+                await asyncio.sleep(1)
         except KeyboardInterrupt:
-            logger.info("Shutting down...")
-        finally:
             await server.stop()
 
 
