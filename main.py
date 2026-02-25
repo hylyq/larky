@@ -4,12 +4,14 @@ import asyncio
 import logging
 from datetime import datetime
 from dotenv import load_dotenv
-from larky import LarkBot, Message, WebhookServer
+from larky import LarkBot, Message, WebhookServer, LarkConfig
 
 load_dotenv()
 
+config = LarkConfig.from_env()
+
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, config.log_level.upper(), logging.INFO),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
