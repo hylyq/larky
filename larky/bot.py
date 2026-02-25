@@ -104,6 +104,26 @@ class LarkBot:
         async with session.request(method, url, json=payload, headers=headers, params=params) as resp:
             return await resp.json()
 
+    def _resolve_receive_id(
+        self,
+        open_id: str | None = None,
+        user_id: str | None = None,
+        chat_id: str | None = None,
+        email: str | None = None,
+    ) -> tuple[str, str]:
+        if open_id:
+            return "open_id", open_id
+        elif user_id:
+            return "user_id", user_id
+        elif chat_id:
+            return "chat_id", chat_id
+        elif email:
+            return "email", email
+        elif self.config.open_id:
+            return "open_id", self.config.open_id
+        
+        raise ValueError("Must provide one of: open_id, user_id, chat_id, email, or set OPEN_ID in config")
+
     async def send_text(
         self,
         text: str,
@@ -112,29 +132,13 @@ class LarkBot:
         user_id: str | None = None,
         chat_id: str | None = None,
         email: str | None = None,
-        root_id: str | None = None,
     ) -> dict[str, Any]:
-        receive_id_type = None
-        receive_id = None
-        
-        if open_id:
-            receive_id_type = "open_id"
-            receive_id = open_id
-        elif user_id:
-            receive_id_type = "user_id"
-            receive_id = user_id
-        elif chat_id:
-            receive_id_type = "chat_id"
-            receive_id = chat_id
-        elif email:
-            receive_id_type = "email"
-            receive_id = email
-        elif self.config.open_id:
-            receive_id_type = "open_id"
-            receive_id = self.config.open_id
-        
-        if not receive_id_type:
-            raise ValueError("Must provide one of: open_id, user_id, chat_id, email, or set OPEN_ID in config")
+        receive_id_type, receive_id = self._resolve_receive_id(
+            open_id=open_id,
+            user_id=user_id,
+            chat_id=chat_id,
+            email=email,
+        )
         
         import json
         content = json.dumps({"text": text})
@@ -158,29 +162,13 @@ class LarkBot:
         user_id: str | None = None,
         chat_id: str | None = None,
         email: str | None = None,
-        root_id: str | None = None,
     ) -> dict[str, Any]:
-        receive_id_type = None
-        receive_id = None
-        
-        if open_id:
-            receive_id_type = "open_id"
-            receive_id = open_id
-        elif user_id:
-            receive_id_type = "user_id"
-            receive_id = user_id
-        elif chat_id:
-            receive_id_type = "chat_id"
-            receive_id = chat_id
-        elif email:
-            receive_id_type = "email"
-            receive_id = email
-        elif self.config.open_id:
-            receive_id_type = "open_id"
-            receive_id = self.config.open_id
-        
-        if not receive_id_type:
-            raise ValueError("Must provide one of: open_id, user_id, chat_id, email, or set OPEN_ID in config")
+        receive_id_type, receive_id = self._resolve_receive_id(
+            open_id=open_id,
+            user_id=user_id,
+            chat_id=chat_id,
+            email=email,
+        )
         
         if isinstance(content, dict):
             import json
