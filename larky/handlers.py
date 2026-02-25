@@ -100,8 +100,14 @@ class WebhookServer:
         nonce = request.headers.get("X-Lark-Request-Nonce", "")
         signature = request.headers.get("X-Lark-Signature", "")
         
-        if not all([timestamp, nonce, signature]):
+        if not self.bot.config.encrypt_key:
+            if signature:
+                logger.warning("Signature provided but no ENCRYPT_KEY configured")
+                return False
             return True
+        
+        if not all([timestamp, nonce, signature]):
+            return False
         
         bytes_b = (timestamp + nonce + self.bot.config.encrypt_key).encode("utf-8") + body
         h = hashlib.sha256(bytes_b)
