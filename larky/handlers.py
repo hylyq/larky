@@ -5,7 +5,7 @@ from typing import Any, Callable
 
 from aiohttp import web
 
-from .bot import LarkBot
+from .bot import LarkBot, APIError, TokenError, ValidationError
 from .models import Message, AESCipher
 
 logger = logging.getLogger(__name__)
@@ -65,9 +65,18 @@ class WebhookServer:
             if result:
                 return web.json_response(result)
             return web.json_response({})
+        except ValidationError as e:
+            logger.warning(f"Validation error: {e}")
+            return web.Response(status=400, text="Invalid request")
+        except TokenError as e:
+            logger.error(f"Token error: {e}")
+            return web.Response(status=401, text="Authentication error")
+        except APIError as e:
+            logger.error(f"API error: {e}")
+            return web.Response(status=502, text="Bot API error")
         except Exception as e:
-            logger.exception(f"Error handling webhook: {e}")
-            return web.Response(status=500, text=str(e))
+            logger.exception(f"Unexpected error handling webhook: {e}")
+            return web.Response(status=500, text="Internal server error")
 
     def _decrypt_data(self, data: dict[str, Any]) -> dict[str, Any]:
         encrypt_data = data.get("encrypt")

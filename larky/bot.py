@@ -8,6 +8,25 @@ from .config import LarkConfig
 from .models import Message, MessageType, TenantAccessToken
 
 
+class LarkError(Exception):
+    pass
+
+
+class TokenError(LarkError):
+    pass
+
+
+class APIError(LarkError):
+    def __init__(self, code: int, msg: str):
+        self.code = code
+        self.msg = msg
+        super().__init__(f"API Error {code}: {msg}")
+
+
+class ValidationError(LarkError):
+    pass
+
+
 class LarkBot:
     def __init__(
         self,
@@ -74,7 +93,7 @@ class LarkBot:
         async with session.post(url, json=payload) as resp:
             data = await resp.json()
             if data.get("code") != 0:
-                raise Exception(f"Failed to get access token: {data}")
+                raise TokenError(f"Failed to get access token: {data.get('msg', 'Unknown error')}")
             
             self._access_token = TenantAccessToken(
                 token=data["tenant_access_token"],
@@ -102,7 +121,14 @@ class LarkBot:
         }
         
         async with session.request(method, url, json=payload, headers=headers, params=params) as resp:
-            return await resp.json()
+            data = await resp.json()
+            
+            if data.get("code") != 0:
+                code = data.get("code", -1)
+                msg = data.get("msg", "Unknown error")
+                raise APIError(code, msg)
+            
+            return data
 
     def _resolve_receive_id(
         self,
@@ -122,7 +148,7 @@ class LarkBot:
         elif self.config.open_id:
             return "open_id", self.config.open_id
         
-        raise ValueError("Must provide one of: open_id, user_id, chat_id, email, or set OPEN_ID in config")
+        raise ValidationError("Must provide one of: open_id, user_id, chat_id, email, or set OPEN_ID in config")
 
     async def send_text(
         self,
