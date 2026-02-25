@@ -63,16 +63,22 @@ VERIFICATION_TOKEN=xxx
 ENCRYPT_KEY=xxx
 LARK_HOST=https://open.feishu.cn
 OPEN_ID=ou_xxx
+MAX_RETRIES=3
+RETRY_DELAY=1.0
+LOG_LEVEL=INFO
 ```
 
-| 配置项 | 说明 | 必填 |
-|--------|------|------|
-| `APP_ID` | 飞书应用的 App ID | 是 |
-| `APP_SECRET` | 飞书应用的 App Secret | 是 |
-| `VERIFICATION_TOKEN` | 事件订阅的验证 Token | 否 |
-| `ENCRYPT_KEY` | 消息加密 Key（启用加密时必填） | 否 |
-| `LARK_HOST` | 飞书 API 地址，默认 `https://open.feishu.cn` | 否 |
-| `OPEN_ID` | 默认接收消息的用户 open_id | 否 |
+| 配置项 | 说明 | 必填 | 默认值 |
+|--------|------|------|--------|
+| `APP_ID` | 飞书应用的 App ID | 是 | - |
+| `APP_SECRET` | 飞书应用的 App Secret | 是 | - |
+| `VERIFICATION_TOKEN` | 事件订阅的验证 Token | 否 | - |
+| `ENCRYPT_KEY` | 消息加密 Key（启用加密时必填） | 否 | - |
+| `LARK_HOST` | 飞书 API 地址 | 否 | `https://open.feishu.cn` |
+| `OPEN_ID` | 默认接收消息的用户 open_id | 否 | - |
+| `MAX_RETRIES` | API 请求最大重试次数 | 否 | `3` |
+| `RETRY_DELAY` | API 请求重试延迟（秒） | 否 | `1.0` |
+| `LOG_LEVEL` | 日志级别 | 否 | `INFO` |
 
 ## 快速开始
 
@@ -165,10 +171,20 @@ bot = LarkBot(
     encrypt_key="xxx",         # 可选，用于解密消息
     lark_host="https://open.feishu.cn",
     open_id="ou_xxx",          # 可选，默认接收消息的用户
+    max_retries=3,             # 可选，API 请求最大重试次数
+    retry_delay=1.0,           # 可选，API 请求重试延迟（秒）
 )
 
 # 或从环境变量加载
 bot = LarkBot.from_env()
+
+# 或使用 LarkConfig
+from larky import LarkConfig
+config = LarkConfig(
+    app_id="xxx",
+    app_secret="xxx",
+)
+bot = LarkBot(config=config)
 ```
 
 #### 发送消息
@@ -247,6 +263,38 @@ MessageType.AUDIO        # 音频消息
 MessageType.MEDIA        # 视频消息
 MessageType.STICKER      # 表情消息
 MessageType.INTERACTIVE  # 交互式卡片消息
+```
+
+### LarkConfig
+
+```python
+from larky import LarkConfig
+
+config = LarkConfig(
+    app_id="xxx",
+    app_secret="xxx",
+    verification_token="xxx",
+    encrypt_key="xxx",
+    lark_host="https://open.feishu.cn",
+    open_id="ou_xxx",
+    max_retries=3,
+    retry_delay=1.0,
+    log_level="INFO",
+)
+
+# 或从环境变量加载
+config = LarkConfig.from_env()
+```
+
+### 异常类
+
+```python
+from larky import LarkError, TokenError, APIError, ValidationError
+
+# LarkError - 基础异常类
+# TokenError - Token 获取或刷新失败
+# APIError - 飞书 API 调用失败（包含 code 和 msg 属性）
+# ValidationError - 参数验证失败
 ```
 
 ### WebhookServer
