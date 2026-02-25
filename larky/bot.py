@@ -120,15 +120,24 @@ class LarkBot:
             "Content-Type": "application/json",
         }
         
-        async with session.request(method, url, json=payload, headers=headers, params=params) as resp:
-            data = await resp.json()
-            
-            if data.get("code") != 0:
-                code = data.get("code", -1)
-                msg = data.get("msg", "Unknown error")
-                raise APIError(code, msg)
-            
-            return data
+        last_exception = None
+        for attempt in range(self.config.max_retries):
+            try:
+                async with session.request(method, url, json=payload, headers=headers, params=params) as resp:
+                    data = await resp.json()
+                    
+                    if data.get("code") != 0:
+                        code = data.get("code", -1)
+                        msg = data.get("msg", "Unknown error")
+                        raise APIError(code, msg)
+                    
+                    return data
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                last_exception = e
+                if attempt < self.config.max_retries - 1:
+                    await asyncio.sleep(self.config.retry_delay * (attempt + 1))
+        
+        raise last_exception
 
     def _resolve_receive_id(
         self,
