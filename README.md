@@ -12,6 +12,7 @@
 - **类型提示**：完整的类型注解，IDE 友好
 - **微信扫码登录**：终端显示二维码，扫码即可登录
 - **凭证持久化**：登录信息自动保存，与官方 openclaw 插件兼容
+- **主动推送**：微信机器人支持主动推送消息，适合量化交易通知场景
 
 ## 安装
 
@@ -118,7 +119,12 @@ async def main():
         from datetime import datetime
         await bot.reply_text(msg, f"时间: {datetime.now():%H:%M:%S}")
     
-    await bot.run()
+    # 启动时主动发送欢迎消息（量化交易通知场景）
+    async def on_ready():
+        if bot.get_user_id():
+            await bot.notify("🤖 机器人已启动！")
+    
+    await bot.run(on_ready=on_ready)
 
 asyncio.run(main())
 ```
@@ -164,9 +170,14 @@ async def cmd(msg: QQMessage, args: list): ...
 ```python
 bot = WeChatBot.from_env()
 
-# 发送消息
-await bot.send_text("Hello", to_user_id="xxx@im.wechat")
+# 主动推送消息（默认发给已绑定用户，量化交易通知推荐使用）
+await bot.notify("📈 BTC 突破关键阻力位")
+
+# 回复消息
 await bot.reply_text(message, "Reply")
+
+# 获取已绑定用户 ID
+user_id = bot.get_user_id()
 
 # 发送输入状态
 await bot.send_typing(to_user_id, typing=True)
@@ -177,6 +188,12 @@ async def handler(msg: WeChatMessage): ...
 
 @bot.on_command("cmd")
 async def cmd(msg: WeChatMessage, args: list): ...
+
+# 机器人就绪回调
+async def on_ready():
+    await bot.notify("机器人已上线")
+
+await bot.run(on_ready=on_ready)
 ```
 
 ### Message 对象
@@ -277,6 +294,83 @@ uv run python wechat_main.py
 - Token 过期时需重新扫码登录
 - 在其他设备登录同一账号会使当前 token 失效
 
+### 主动推送消息
+
+微信机器人支持主动推送消息，非常适合量化交易通知场景：
+
+```python
+# 最简单的方式 - 只需一行代码
+await bot.notify("📈 BTC 突破 $100,000")
+```
+
+`notify()` 方法会自动发送给已绑定的用户，无需指定 `to_user_id`。
+
+### on_ready 回调
+
+`on_ready` 是一个回调函数，在机器人**完全就绪后**自动执行。用于：
+- 发送启动通知
+- 启动后台任务
+- 初始化资源
+
+```python
+async def on_ready():
+    # 机器人已登录，可以安全地发送消息
+    if bot.get_user_id():
+        await bot.notify("🤖 机器人已上线")
+
+await bot.run(on_ready=on_ready)
+```
+
+**为什么需要 on_ready？**
+
+`run()` 方法内部会执行登录流程，在登录完成前调用 `notify()` 会失败。`on_ready` 确保你的代码在登录完成后才执行。
+
+```python
+# ❌ 错误：run() 之前调用会失败
+await bot.notify("启动")  # 报错：Not logged in
+await bot.run()
+
+# ✅ 正确：在 on_ready 中调用
+async def on_ready():
+    await bot.notify("启动")
+await bot.run(on_ready=on_ready)
+```
+
+### 量化交易通知示例
+
+完整的量化交易通知示例：
+
+```python
+import asyncio
+from larky import WeChatBot, WeChatMessage
+
+bot = WeChatBot.from_env()
+
+async def price_monitor():
+    """监控价格并在突破时发送通知"""
+    while True:
+        price = await get_btc_price()
+        if price > 100000:
+            await bot.notify(f"📈 BTC 突破 $100,000！当前: ${price:,}")
+        await asyncio.sleep(60)
+
+async def on_ready():
+    # 发送启动通知
+    await bot.notify("🤖 量化交易机器人已启动")
+    # 启动价格监控任务
+    asyncio.create_task(price_monitor())
+
+async def main():
+    @bot.on_command("status")
+    async def status(msg: WeChatMessage, args: list):
+        price = await get_btc_price()
+        await bot.reply_text(msg, f"📊 当前 BTC 价格: ${price:,}")
+    
+    await bot.run(on_ready=on_ready)
+
+asyncio.run(main())
+```
+
 ## 平台配置
 
 ### 飞书开放平台
@@ -312,7 +406,6 @@ larky/
 │   ├── wechat_bot.py       # 微信机器人核心
 │   ├── wechat_config.py    # 微信配置
 │   └── wechat_models.py    # 微信模型
-├── package/                # 官方 openclaw-weixin 插件源码参考
 ├── main.py                 # 飞书示例
 ├── qq_main.py              # QQ示例
 ├── wechat_main.py          # 微信示例

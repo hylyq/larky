@@ -154,6 +154,11 @@ class WeChatBot:
             pass
         return []
 
+    def get_user_id(self) -> str | None:
+        if self._account and self._account.user_id:
+            return self._account.user_id
+        return None
+
     def _random_wechat_uin(self) -> str:
         uint32 = secrets.randbelow(2**32)
         return base64.b64encode(str(uint32).encode("utf-8")).decode("utf-8")
@@ -340,21 +345,23 @@ class WeChatBot:
     async def send_text(
         self,
         text: str,
-        to_user_id: str,
+        to_user_id: str | None = None,
         context_token: str | None = None,
     ) -> dict[str, Any]:
         if not self._account:
             raise WeChatError("Not logged in")
 
-        ctx_token = context_token or self._get_context_token(to_user_id)
-        if not ctx_token:
-            logger.warning(f"No context token for {to_user_id}, message may not be associated")
+        user_id = to_user_id or self._account.user_id
+        if not user_id:
+            raise WeChatError("No target user_id. User needs to send a message first.")
+
+        ctx_token = context_token or self._get_context_token(user_id)
 
         client_id = f"openclaw-weixin-{uuid.uuid4().hex[:16]}"
         payload = {
             "msg": {
                 "from_user_id": "",
-                "to_user_id": to_user_id,
+                "to_user_id": user_id,
                 "client_id": client_id,
                 "message_type": MessageType.BOT.value,
                 "message_state": MessageState.FINISH.value,
@@ -365,6 +372,9 @@ class WeChatBot:
 
         await self._api_request("ilink/bot/sendmessage", payload)
         return {"message_id": client_id}
+
+    async def notify(self, text: str) -> dict[str, Any]:
+        return await self.send_text(text)
 
     async def reply_text(self, message: WeChatMessage, text: str) -> dict[str, Any]:
         return await self.send_text(text, message.from_user_id, message.context_token)
@@ -419,7 +429,7 @@ class WeChatBot:
             except Exception as e:
                 logger.error(f"Message handler error: {e}")
 
-    async def run(self) -> None:
+    async def run(self, on_ready: Callable[[], Any] | None = None) -> None:
         await self._init_session()
 
         account_ids = self._list_account_ids()
@@ -437,6 +447,11 @@ class WeChatBot:
 
         logger.info(f"Starting message polling for account: {self._account.account_id}")
         self._running = True
+
+        if on_ready:
+            result = on_ready()
+            if asyncio.iscoroutine(result):
+                await result
 
         while self._running:
             try:
