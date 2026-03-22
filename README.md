@@ -36,10 +36,7 @@ OPEN_ID=
 QQ_APP_ID=xxx
 QQ_APP_SECRET=xxx
 
-# 微信机器人配置
-WECHAT_BASE_URL=https://ilinkai.weixin.qq.com
-WECHAT_CDN_BASE_URL=https://novac2c.cdn.weixin.qq.com/c2c
-WECHAT_BOT_TYPE=3
+# 微信机器人无需配置，扫码登录即可使用
 ```
 
 | 配置项 | 说明 | 必填 |
@@ -48,8 +45,8 @@ WECHAT_BOT_TYPE=3
 | `APP_SECRET` | 飞书应用的 App Secret | 飞书必填 |
 | `QQ_APP_ID` | QQ机器人的 App ID | QQ必填 |
 | `QQ_APP_SECRET` | QQ机器人的 App Secret | QQ必填 |
-| `WECHAT_BASE_URL` | 微信 API 基础地址 | 可选，默认值即可 |
-| `WECHAT_BOT_TYPE` | 微信机器人类型 | 可选，默认值即可 |
+
+> **微信机器人无需配置**：直接运行 `uv run python wechat_main.py`，扫码登录即可使用，不需要在 `.env` 文件中配置任何参数。
 
 ## 快速开始
 
