@@ -9,6 +9,9 @@ from .models import Message, MessageType
 from .qq_bot import QQBot, QQError
 from .qq_config import QQConfig
 from .qq_models import QQMessage, QQMessageType
+from .wechat_bot import WeChatBot, WeChatError
+from .wechat_config import WeChatConfig
+from .wechat_models import WeChatMessage, WeChatAccount
 
 __all__ = [
     "LarkBot",
@@ -27,4 +30,9 @@ __all__ = [
     "QQConfig",
     "QQMessage",
     "QQMessageType",
+    "WeChatBot",
+    "WeChatError",
+    "WeChatConfig",
+    "WeChatMessage",
+    "WeChatAccount",
 ]
