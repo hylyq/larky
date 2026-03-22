@@ -371,6 +371,127 @@ async def main():
 asyncio.run(main())
 ```
 
+### 多进程架构
+
+当多个量化程序需要共享同一个微信账号时，使用 `WeChatService` + `WeChatClient` 架构：
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                      服务器                              │
+│                                                         │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐ │
+│  │ 量化程序 A  │    │ 量化程序 B  │    │ 量化程序 C  │ │
+│  │ (BTC监控)   │    │ (ETH监控)   │    │ (套利策略)  │ │
+│  └──────┬──────┘    └──────┬──────┘    └──────┬──────┘ │
+│         │                  │                  │        │
+│         └──────────────────┼──────────────────┘        │
+│                            ▼                           │
+│                   ┌─────────────────┐                  │
+│                   │   Redis Pub/Sub │                  │
+│                   └────────┬────────┘                  │
+│                            │                           │
+│                            ▼                           │
+│                   ┌─────────────────┐                  │
+│                   │  WeChatService  │ ← 唯一微信连接   │
+│                   └─────────────────┘                  │
+└─────────────────────────────────────────────────────────┘
+```
+
+**启动步骤：**
+
+```bash
+# 1. 启动 Redis
+redis-server
+
+# 2. 启动微信消息服务（唯一微信连接）
+uv run python -m larky.wechat_service
+
+# 3. 启动量化程序（可同时运行多个）
+uv run python examples/trading_bot_btc.py
+uv run python examples/trading_bot_eth.py
+```
+
+**量化程序使用 WeChatClient：**
+
+```python
+from larky import WeChatClient
+
+client = WeChatClient(source="btc-monitor")
+
+# 发送通知
+await client.notify("📈 BTC 突破 $100,000")
+
+# 接收消息
+@client.message_handler
+async def on_message(data: dict):
+    text = data.get("text", "")
+    if "价格" in text:
+        await client.notify(f"当前价格: ${await get_price()}")
+
+await client.run()
+```
+
+**环境变量：**
+
+```env
+REDIS_URL=redis://localhost:6379
+# 或
+REDIS_HOST=localhost
+REDIS_PORT=6379
+```
+
+### 故障处理
+
+微信消息服务内置以下故障处理机制：
+
+**1. 掉线自动重连**
+
+网络波动导致断开时，服务会自动重连（默认最多 10 次）。
+
+**2. Token 过期通知**
+
+登录过期时，通过备份渠道通知用户重新扫码：
+
+```env
+# 邮件通知（可选）
+BACKUP_EMAIL_FROM=bot@example.com
+BACKUP_EMAIL_TO=your@email.com
+BACKUP_EMAIL_SMTP=smtp.gmail.com
+BACKUP_EMAIL_PORT=587
+BACKUP_EMAIL_USER=your@gmail.com
+BACKUP_EMAIL_PASSWORD=your-app-password
+
+# Webhook 通知（可选）
+BACKUP_WEBHOOK_URL=https://your-server.com/notify
+```
+
+**3. 消息队列持久化**
+
+重要消息可设置高优先级，离线时保存到队列：
+
+```python
+# 高优先级消息 - 离线时保存，恢复后重发
+await client.notify("🚨 紧急通知：止损触发", priority="high")
+
+# 普通消息 - 离线时丢弃
+await client.notify("📊 日常报告", priority="normal")
+```
+
+**4. 状态监控**
+
+客户端可监听服务状态变化：
+
+```python
+@client.status_handler
+async def on_status(data: dict):
+    if data.get("need_login"):
+        # 服务需要重新登录
+        logger.warning("微信服务需要重新扫码登录")
+    elif data.get("status") == "offline":
+        # 服务离线
+        logger.warning("微信服务离线")
+```
+
 ## 平台配置
 
 ### 飞书开放平台
@@ -405,7 +526,11 @@ larky/
 │   ├── qq_models.py        # QQ模型
 │   ├── wechat_bot.py       # 微信机器人核心
 │   ├── wechat_config.py    # 微信配置
-│   └── wechat_models.py    # 微信模型
+│   ├── wechat_models.py    # 微信模型
+│   └── wechat_service.py   # 微信消息服务（多进程架构）
+├── examples/
+│   ├── trading_bot_btc.py  # BTC 监控示例
+│   └── trading_bot_eth.py  # ETH 监控示例
 ├── main.py                 # 飞书示例
 ├── qq_main.py              # QQ示例
 ├── wechat_main.py          # 微信示例
@@ -419,6 +544,7 @@ larky/
 - python-dotenv >= 1.0.0
 - pycryptodome >= 3.20.0
 - qrcode >= 8.2
+- redis >= 5.0.0
 
 ## License
 
