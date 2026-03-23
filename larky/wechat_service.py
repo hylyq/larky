@@ -70,7 +70,7 @@ class ServiceStatus:
 
 
 class BackupNotifier:
-    """备份通知器 - 当微信失联时通过其他渠道通知用户"""
+    """备份通知器 - 当微信失联时通过邮件通知用户"""
 
     def __init__(self):
         self.email_enabled = bool(os.getenv("BACKUP_EMAIL_TO"))
@@ -81,29 +81,18 @@ class BackupNotifier:
         self.email_user = os.getenv("BACKUP_EMAIL_USER", "")
         self.email_password = os.getenv("BACKUP_EMAIL_PASSWORD", "")
 
-        self.webhook_url = os.getenv("BACKUP_WEBHOOK_URL", "")
-
     async def notify(self, subject: str, message: str) -> bool:
         """发送备份通知"""
-        success = False
+        if not self.email_enabled:
+            return False
 
-        if self.email_enabled:
-            try:
-                await self._send_email(subject, message)
-                logger.info(f"📧 备份邮件已发送: {subject}")
-                success = True
-            except Exception as e:
-                logger.error(f"发送备份邮件失败: {e}")
-
-        if self.webhook_url:
-            try:
-                await self._send_webhook(subject, message)
-                logger.info(f"🔗 Webhook 通知已发送: {subject}")
-                success = True
-            except Exception as e:
-                logger.error(f"发送 Webhook 通知失败: {e}")
-
-        return success
+        try:
+            await self._send_email(subject, message)
+            logger.info(f"📧 备份邮件已发送: {subject}")
+            return True
+        except Exception as e:
+            logger.error(f"发送备份邮件失败: {e}")
+            return False
 
     async def _send_email(self, subject: str, message: str) -> None:
         """发送邮件通知"""
@@ -121,16 +110,6 @@ class BackupNotifier:
                 server.send_message(msg)
 
         await loop.run_in_executor(None, send)
-
-    async def _send_webhook(self, subject: str, message: str) -> None:
-        """发送 Webhook 通知"""
-        import aiohttp
-
-        async with aiohttp.ClientSession() as session:
-            payload = {"subject": subject, "message": message, "timestamp": datetime.now().isoformat()}
-            async with session.post(self.webhook_url, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                if resp.status >= 400:
-                    raise Exception(f"Webhook returned {resp.status}")
 
 
 class WeChatService:

@@ -450,19 +450,15 @@ REDIS_PORT=6379
 
 **2. Token 过期通知**
 
-登录过期时，通过备份渠道通知用户重新扫码：
+登录过期时，通过邮件通知用户重新扫码：
 
 ```env
-# 邮件通知（可选）
 BACKUP_EMAIL_FROM=bot@example.com
 BACKUP_EMAIL_TO=your@email.com
 BACKUP_EMAIL_SMTP=smtp.gmail.com
 BACKUP_EMAIL_PORT=587
 BACKUP_EMAIL_USER=your@gmail.com
 BACKUP_EMAIL_PASSWORD=your-app-password
-
-# Webhook 通知（可选）
-BACKUP_WEBHOOK_URL=https://your-server.com/notify
 ```
 
 **3. 消息队列持久化**
