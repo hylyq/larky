@@ -22,10 +22,15 @@
 
     # 终端2：量化程序使用 WeChatClient 发送/接收消息
 
+消息优先级：
+    - normal（默认）: 普通优先级，离线时消息丢弃
+    - high: 高优先级，离线时消息保存到队列并通过邮件备份发送，
+            微信恢复后自动重发积压的历史消息
+
 故障处理：
     - 掉线自动重连
     - Token 过期时通过备份渠道通知用户重新扫码
-    - 消息队列持久化，恢复后重发
+    - 高优先级消息队列持久化，恢复后重发
 """
 
 import asyncio
@@ -94,8 +99,49 @@ class BackupNotifier:
             logger.error(f"发送备份邮件失败: {e}")
             return False
 
+    async def send_message_backup(
+        self, text: str, source: str, timestamp: str | None = None
+    ) -> bool:
+        """发送消息备份邮件（高优先级消息无法发送微信时使用）
+
+        Args:
+            text: 消息内容
+            source: 消息来源程序
+            timestamp: 消息时间戳
+
+        Returns:
+            是否发送成功
+        """
+        if not self.email_enabled:
+            return False
+
+        subject = f"🚨 [高优先级消息备份] {source}"
+        message = f"""微信服务离线，高优先级消息已通过邮件备份发送。
+
+来源程序: {source}
+时间: {timestamp or datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+消息内容:
+{text}
+
+---
+此消息将在微信服务恢复后自动重发。"""
+
+        try:
+            await self._send_email(subject, message)
+            logger.info(f"📧 消息备份邮件已发送: {text[:30]}...")
+            return True
+        except Exception as e:
+            logger.error(f"发送消息备份邮件失败: {e}")
+            return False
+
     async def _send_email(self, subject: str, message: str) -> None:
-        """发送邮件通知"""
+        """发送邮件通知
+
+        根据端口自动选择连接方式：
+        - 465 端口：使用 SMTP_SSL（直接 SSL 连接）
+        - 587 或其他端口：使用 SMTP + STARTTLS
+        """
         loop = asyncio.get_event_loop()
 
         def send():
@@ -104,10 +150,15 @@ class BackupNotifier:
             msg["From"] = self.email_from
             msg["To"] = self.email_to
 
-            with smtplib.SMTP(self.email_smtp, self.email_port) as server:
-                server.starttls()
-                server.login(self.email_user, self.email_password)
-                server.send_message(msg)
+            if self.email_port == 465:
+                with smtplib.SMTP_SSL(self.email_smtp, self.email_port) as server:
+                    server.login(self.email_user, self.email_password)
+                    server.send_message(msg)
+            else:
+                with smtplib.SMTP(self.email_smtp, self.email_port) as server:
+                    server.starttls()
+                    server.login(self.email_user, self.email_password)
+                    server.send_message(msg)
 
         await loop.run_in_executor(None, send)
 
@@ -311,12 +362,18 @@ uv run python -m larky.wechat_service
             await pubsub.close()
 
     async def _handle_outgoing_message(self, data: bytes) -> None:
-        """处理发送请求"""
+        """处理发送请求
+
+        优先级处理逻辑：
+        - normal（默认）: 离线时消息丢弃
+        - high: 离线时消息加入队列 + 并行发送邮件备份，微信恢复后重发
+        """
         try:
             payload = json.loads(data)
             text = payload.get("text", "")
             source = payload.get("source", "unknown")
             priority = payload.get("priority", "normal")
+            timestamp = payload.get("timestamp", datetime.now().isoformat())
 
             if not text:
                 logger.warning("收到空消息，忽略")
@@ -325,14 +382,18 @@ uv run python -m larky.wechat_service
             if not self._status.connected:
                 if priority == "high":
                     await self.redis.rpush(QUEUE_PENDING, data)
-                    logger.warning(f"📦 离线，消息已加入待发队列: {text[:30]}...")
+                    logger.warning(f"📦 离线，高优先级消息已加入待发队列: {text[:30]}...")
+
+                    await self._backup_notifier.send_message_backup(
+                        text=text, source=source, timestamp=timestamp
+                    )
                 else:
-                    logger.warning(f"⚠️ 离线，消息丢弃: {text[:30]}...")
+                    logger.warning(f"⚠️ 离线，普通消息丢弃: {text[:30]}...")
                 return
 
             await self.bot.notify(text)
             self._status.message_sent += 1
-            logger.info(f"📨 发送消息 (来源: {source}): {text[:50]}...")
+            logger.info(f"📨 发送消息 (来源: {source}, 优先级: {priority}): {text[:50]}...")
 
         except json.JSONDecodeError as e:
             logger.error(f"JSON 解析失败: {e}")
@@ -351,11 +412,22 @@ uv run python -m larky.wechat_service
             await self._publish_status("online" if self._status.connected else "offline")
 
     async def _process_pending_messages(self) -> None:
-        """处理待发送消息队列"""
+        """处理待发送消息队列
+
+        只在微信连接正常时才处理待发消息，确保高优先级消息在恢复后自动重发
+        """
         await asyncio.sleep(5)
 
         while self._running:
             try:
+                if not self._status.connected:
+                    await asyncio.sleep(30)
+                    continue
+
+                pending_count = await self.redis.llen(QUEUE_PENDING)
+                if pending_count > 0:
+                    logger.info(f"📦 开始处理 {pending_count} 条待发消息...")
+
                 while True:
                     data = await self.redis.lpop(QUEUE_PENDING)
                     if not data:
@@ -364,10 +436,14 @@ uv run python -m larky.wechat_service
                     payload = json.loads(data)
                     text = payload.get("text", "")
                     source = payload.get("source", "unknown")
+                    priority = payload.get("priority", "normal")
+                    timestamp = payload.get("timestamp", "")
 
                     await self.bot.notify(text)
                     self._status.message_sent += 1
-                    logger.info(f"📨 重发待发消息 (来源: {source}): {text[:50]}...")
+                    logger.info(
+                        f"📨 重发待发消息 (来源: {source}, 优先级: {priority}): {text[:50]}..."
+                    )
                     await asyncio.sleep(1)
 
             except Exception as e:
@@ -418,12 +494,17 @@ class WeChatClient:
         Args:
             text: 消息内容
             priority: 优先级 "normal" 或 "high"
-                     "high" - 离线时消息会保存到队列，恢复后重发
-                     "normal" - 离线时消息丢弃
+                     "normal"（默认）- 离线时消息丢弃
+                     "high" - 离线时消息保存到队列并邮件备份，恢复后重发
         """
-        payload = {"text": text, "source": self.source, "priority": priority}
+        payload = {
+            "text": text,
+            "source": self.source,
+            "priority": priority,
+            "timestamp": datetime.now().isoformat(),
+        }
         await self.redis.publish(CHANNEL_OUTGOING, json.dumps(payload, ensure_ascii=False))
-        logger.debug(f"📤 发送通知请求: {text[:50]}...")
+        logger.debug(f"📤 发送通知请求 (优先级: {priority}): {text[:50]}...")
 
     async def on_message(self, handler: Callable[[dict[str, Any]], Any]) -> None:
         """注册消息处理器"""

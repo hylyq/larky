@@ -461,16 +461,38 @@ BACKUP_EMAIL_USER=your@gmail.com
 BACKUP_EMAIL_PASSWORD=your-app-password
 ```
 
-**3. 消息队列持久化**
+> **端口说明**：
+> - `587` 端口：使用 STARTTLS 方式连接
+> - `465` 端口：使用 SSL 直接连接（推荐国内邮箱如 139、QQ 邮箱使用）
 
-重要消息可设置高优先级，离线时保存到队列：
+**3. 消息优先级与备份发送**
+
+量化程序发送的消息支持两种优先级：
 
 ```python
-# 高优先级消息 - 离线时保存，恢复后重发
-await client.notify("🚨 紧急通知：止损触发", priority="high")
-
-# 普通消息 - 离线时丢弃
+# 普通消息（默认）- 离线时丢弃
 await client.notify("📊 日常报告", priority="normal")
+
+# 高优先级消息 - 离线时邮件备份 + 恢复后重发
+await client.notify("🚨 紧急通知：止损触发", priority="high")
+```
+
+| 优先级 | 在线时 | 离线时 |
+|--------|--------|--------|
+| `normal`（默认） | 直接发送微信 | 消息丢弃 |
+| `high` | 直接发送微信 | 1. 消息入队保存<br>2. 并行发送邮件备份<br>3. 微信恢复后自动重发 |
+
+**使用场景示例：**
+
+```python
+# 日常报告 - 普通优先级，离线时无需通知
+await client.notify("📊 每日盈亏: +$1,234", priority="normal")
+
+# 重要交易信号 - 高优先级，确保送达
+await client.notify("🚨 止损触发: BTC 跌破 $95,000", priority="high")
+
+# 风险预警 - 高优先级
+await client.notify("⚠️ 账户保证金不足，请及时处理", priority="high")
 ```
 
 **4. 状态监控**
@@ -527,10 +549,21 @@ larky/
 ├── examples/
 │   ├── trading_bot_btc.py  # BTC 监控示例
 │   └── trading_bot_eth.py  # ETH 监控示例
+├── tests/
+│   └── test_wechat_priority.py  # 微信优先级功能测试
 ├── main.py                 # 飞书示例
 ├── qq_main.py              # QQ示例
 ├── wechat_main.py          # 微信示例
 └── pyproject.toml
+```
+
+## 测试
+
+运行单元测试：
+
+```bash
+# 运行微信优先级功能测试
+uv run python tests/test_wechat_priority.py
 ```
 
 ## 依赖
