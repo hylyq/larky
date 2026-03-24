@@ -351,15 +351,15 @@ uv run python -m larky.wechat_service
 
         try:
             async for message in pubsub.listen():
-                if not self._running:
-                    break
                 if message["type"] == "message":
+                    if not self._running:
+                        continue
                     await self._handle_outgoing_message(message["data"])
         except asyncio.CancelledError:
             pass
         finally:
             await pubsub.unsubscribe(CHANNEL_OUTGOING)
-            await pubsub.close()
+            await pubsub.aclose()
 
     async def _handle_outgoing_message(self, data: bytes) -> None:
         """处理发送请求
