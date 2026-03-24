@@ -404,7 +404,7 @@ asyncio.run(main())
 redis-server
 
 # 2. 启动微信消息服务（唯一微信连接）
-uv run python -m larky.wechat_service
+uv run python -m larky
 
 # 3. 启动量化程序（可同时运行多个）
 uv run python examples/trading_bot_btc.py
@@ -535,6 +535,7 @@ async def on_status(data: dict):
 larky/
 ├── larky/
 │   ├── __init__.py
+│   ├── __main__.py         # 微信消息服务入口
 │   ├── bot.py              # 飞书 LarkBot
 │   ├── config.py           # 飞书配置
 │   ├── handlers.py         # 飞书 Webhook
