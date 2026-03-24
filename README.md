@@ -558,6 +558,84 @@ larky/
 └── pyproject.toml
 ```
 
+## 在其他项目中使用
+
+### 方式一：本地路径安装（推荐）
+
+在目标项目的 `pyproject.toml` 中添加：
+
+```toml
+[project]
+dependencies = [
+    "larky @ file:///path/to/larky",
+]
+```
+
+或使用 uv：
+
+```bash
+uv add /path/to/larky
+```
+
+### 方式二：Git 安装
+
+如果 larky 已推送到 Git 仓库：
+
+```bash
+uv add git+https://github.com/yourname/larky.git
+```
+
+或在 `pyproject.toml` 中：
+
+```toml
+[project]
+dependencies = [
+    "larky @ git+https://github.com/yourname/larky.git",
+]
+```
+
+### 方式三：发布到 PyPI
+
+```bash
+uv build
+uv publish
+```
+
+然后其他项目可以直接安装：
+
+```bash
+uv add larky
+```
+
+### 使用示例
+
+```python
+import asyncio
+from larky.wechat_service import WeChatClient
+
+async def main():
+    client = WeChatClient(source="my-trading-bot")
+    
+    @client.message_handler
+    async def on_message(data: dict):
+        text = data.get("text", "")
+        if "状态" in text:
+            await client.notify("✅ 服务运行正常")
+    
+    await client.run()
+
+asyncio.run(main())
+```
+
+**环境变量配置**（`.env`）：
+
+```env
+REDIS_URL=redis://localhost:6379
+# 或
+REDIS_HOST=localhost
+REDIS_PORT=6379
+```
+
 ## 测试
 
 运行单元测试：
