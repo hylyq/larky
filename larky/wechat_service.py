@@ -328,7 +328,9 @@ uv run python -m larky.wechat_service
     async def _handle_incoming_message(self, msg: WeChatMessage) -> None:
         """处理收到的微信消息，发布到 Redis"""
         if msg.is_command():
-            return
+            cmd = msg.get_command()
+            if cmd and cmd[0] in ("help", "status", "ping"):
+                return
 
         data = {
             "from_user_id": msg.from_user_id,
