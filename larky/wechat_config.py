@@ -2,6 +2,24 @@ import os
 from dataclasses import dataclass
 
 
+CHANNEL_VERSION = "2.1.6"
+ILINK_APP_ID = "bot"
+
+
+def _build_client_version(version: str) -> int:
+    parts = version.split(".")
+    major = int(parts[0]) if len(parts) > 0 else 0
+    minor = int(parts[1]) if len(parts) > 1 else 0
+    patch = int(parts[2]) if len(parts) > 2 else 0
+    return ((major & 0xff) << 16) | ((minor & 0xff) << 8) | (patch & 0xff)
+
+
+ILINK_APP_CLIENT_VERSION = _build_client_version(CHANNEL_VERSION)
+
+SESSION_EXPIRED_ERRCODE = -14
+SESSION_PAUSE_DURATION_MS = 60 * 60 * 1000
+
+
 @dataclass
 class WeChatConfig:
     base_url: str = "https://ilinkai.weixin.qq.com"

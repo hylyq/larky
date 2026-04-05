@@ -3,3 +3,4 @@ uv.lock
 .venv/
 larky/__pycache__/
 __pycache__/
+openclaw-weixin

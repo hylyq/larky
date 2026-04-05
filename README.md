@@ -9,10 +9,12 @@
 - **多平台支持**：飞书机器人 + QQ机器人 + 微信机器人
 - **自动认证**：自动管理 access_token，过期自动刷新
 - **装饰器风格**：优雅的消息/指令处理器注册方式
-- **类型提示**：完整的类型注解，IDE 友好
+- **类型提示**：完整的类型注解， IDE 友好
 - **微信扫码登录**：终端显示二维码，扫码即可登录
 - **凭证持久化**：登录信息自动保存，与官方 openclaw 插件兼容
 - **主动推送**：微信机器人支持主动推送消息，适合量化交易通知场景
+- **会话保护**：Session Guard 机制，会话过期自动暂停并邮件通知
+- **数据持久化**：Context Token 和同步缓冲区自动持久化，重启不丢失
 
 ## 安装
 
@@ -294,6 +296,52 @@ uv run python wechat_main.py
 - Token 过期时需重新扫码登录
 - 在其他设备登录同一账号会使当前 token 失效
 
+### 会话保护机制 (Session Guard)
+
+当微信服务器返回会话过期错误（errcode -14）时，系统会自动：
+
+1. **暂停服务 1 小时**：避免频繁无效请求导致 IP 被封禁
+2. **发送邮件通知**：提醒用户重新扫码登录
+3. **自动恢复**：重新登录后自动清除暂停状态
+
+**触发条件**：
+- 用户在微信中删除/解绑了机器人
+- Token 长期未使用导致过期
+
+**邮件通知配置**：
+
+```env
+BACKUP_EMAIL_FROM=bot@example.com
+BACKUP_EMAIL_TO=your@email.com
+BACKUP_EMAIL_SMTP=smtp.gmail.com
+BACKUP_EMAIL_PORT=587
+BACKUP_EMAIL_USER=your@gmail.com
+BACKUP_EMAIL_PASSWORD=your-app-password
+SERVER_NAME=my-server  # 可选，用于邮件内容标识
+```
+
+> **端口说明**：
+> - `587` 端口：使用 STARTTLS 方式连接
+> - `465` 端口：使用 SSL 直接连接（推荐国内邮箱如 139、QQ 邮箱使用）
+
+### 数据持久化
+
+微信机器人会自动持久化以下数据，重启后自动恢复：
+
+```
+~/.openclaw/openclaw-weixin/accounts/
+├── <account_id>.json              # 账户凭证 (token, baseUrl, userId)
+├── <account_id>.sync.json         # 消息同步缓冲区 (get_updates_buf)
+└── <account_id>.context-tokens.json  # 上下文令牌 (用于回复消息)
+```
+
+**持久化内容**：
+| 文件 | 用途 |
+|------|------|
+| `*.json` | 登录凭证，避免重复扫码 |
+| `*.sync.json` | 消息同步位置，避免消息丢失/重复 |
+| `*.context-tokens.json` | 回复令牌，确保消息能正确送达 |
+
 ### 主动推送消息
 
 微信机器人支持主动推送消息，非常适合量化交易通知场景：
@@ -448,22 +496,14 @@ REDIS_PORT=6379
 
 网络波动导致断开时，服务会自动重连（默认最多 10 次）。
 
-**2. Token 过期通知**
+**2. 会话过期保护 (Session Guard)**
 
-登录过期时，通过邮件通知用户重新扫码：
+当微信服务器返回会话过期错误（errcode -14）时：
+- 自动暂停服务 1 小时，避免频繁请求被封禁
+- 发送邮件通知用户重新扫码登录
+- 重新登录后自动恢复
 
-```env
-BACKUP_EMAIL_FROM=bot@example.com
-BACKUP_EMAIL_TO=your@email.com
-BACKUP_EMAIL_SMTP=smtp.gmail.com
-BACKUP_EMAIL_PORT=587
-BACKUP_EMAIL_USER=your@gmail.com
-BACKUP_EMAIL_PASSWORD=your-app-password
-```
-
-> **端口说明**：
-> - `587` 端口：使用 STARTTLS 方式连接
-> - `465` 端口：使用 SSL 直接连接（推荐国内邮箱如 139、QQ 邮箱使用）
+邮件配置见上方 [会话保护机制](#会话保护机制-session-guard)。
 
 **3. 消息优先级与备份发送**
 
@@ -653,6 +693,31 @@ uv run python tests/test_wechat_priority.py
 - pycryptodome >= 3.20.0
 - qrcode >= 8.2
 - redis >= 5.0.0
+
+## 更新日志
+
+### 2026-04-05 - 微信协议适配更新
+
+适配微信官方 `@tencent-weixin/openclaw-weixin` v2.1.6 协议变更：
+
+**API 变更**：
+- 新增 `iLink-App-Id` 和 `iLink-App-ClientVersion` 必需 HTTP Headers
+- 支持 `longpolling_timeout_ms` 动态超时调整
+
+**Session Guard 机制**：
+- 会话过期（errcode -14）时自动暂停 1 小时
+- 发送邮件通知用户重新扫码登录
+- 重新登录后自动恢复服务
+
+**QR Login 增强**：
+- 支持 `scaned_but_redirect` IDC 重定向
+- 二维码过期自动刷新（最多 3 次）
+- 扫码状态实时提示
+
+**数据持久化**：
+- Context Token 持久化到 `*.context-tokens.json`
+- 同步缓冲区持久化到 `*.sync.json`
+- 服务重启后自动恢复状态
 
 ## License
 
