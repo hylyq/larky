@@ -1,33 +1,35 @@
 # Larky
 
-轻量级异步机器人模块，支持飞书 Lark、QQ 和微信机器人，专为量化交易通知场景设计。
+A lightweight async bot framework supporting Feishu (Lark), QQ, and WeChat bots — designed for quantitative trading notification scenarios.
 
-## 特性
+> 📖 [中文文档](README_CN.md)
 
-- **异步架构**：基于 aiohttp，高性能异步 I/O
-- **轻量依赖**：仅需 aiohttp、python-dotenv、pycryptodome、qrcode
-- **多平台支持**：飞书机器人 + QQ机器人 + 微信机器人
-- **自动认证**：自动管理 access_token，过期自动刷新
-- **装饰器风格**：优雅的消息/指令处理器注册方式
-- **类型提示**：完整的类型注解， IDE 友好
-- **微信扫码登录**：终端显示二维码，扫码即可登录
-- **凭证持久化**：登录信息自动保存，与官方 openclaw 插件兼容
-- **主动推送**：微信机器人支持主动推送消息，适合量化交易通知场景
-- **会话保护**：Session Guard 机制，会话过期自动暂停并邮件通知
-- **数据持久化**：Context Token 和同步缓冲区自动持久化，重启不丢失
+## Features
 
-## 安装
+- **Async Architecture**: Built on aiohttp for high-performance async I/O
+- **Lightweight Dependencies**: Only requires aiohttp, python-dotenv, pycryptodome, and qrcode
+- **Multi-Platform**: Feishu bot + QQ bot + WeChat bot
+- **Auto Authentication**: Automatic access_token management with refresh-on-expiry
+- **Decorator Style**: Elegant message/command handler registration
+- **Type Hints**: Complete type annotations for IDE-friendly development
+- **WeChat QR Login**: Scan a QR code in the terminal to log in
+- **Credential Persistence**: Auto-saved login credentials, compatible with the official openclaw plugin
+- **Proactive Push**: WeChat bot supports proactive message push, ideal for trading notifications
+- **Session Guard**: Automatic pause and email notification when session expires
+- **Data Persistence**: Context tokens and sync buffers auto-persisted, survive restarts
+
+## Installation
 
 ```bash
 uv sync
 ```
 
-## 配置
+## Configuration
 
-复制 `.env.example` 为 `.env` 并填入配置：
+Copy `.env.example` to `.env` and fill in the configuration:
 
 ```env
-# 飞书机器人配置
+# Feishu bot configuration
 APP_ID=cli_xxx
 APP_SECRET=xxx
 VERIFICATION_TOKEN=xxx
@@ -35,25 +37,25 @@ ENCRYPT_KEY=
 LARK_HOST=https://open.feishu.cn
 OPEN_ID=
 
-# QQ机器人配置
+# QQ bot configuration
 QQ_APP_ID=xxx
 QQ_APP_SECRET=xxx
 
-# 微信机器人无需配置，扫码登录即可使用
+# WeChat bot — no configuration needed, just scan the QR code
 ```
 
-| 配置项 | 说明 | 必填 |
-|--------|------|------|
-| `APP_ID` | 飞书应用的 App ID | 飞书必填 |
-| `APP_SECRET` | 飞书应用的 App Secret | 飞书必填 |
-| `QQ_APP_ID` | QQ机器人的 App ID | QQ必填 |
-| `QQ_APP_SECRET` | QQ机器人的 App Secret | QQ必填 |
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `APP_ID` | Feishu app ID | Feishu |
+| `APP_SECRET` | Feishu app secret | Feishu |
+| `QQ_APP_ID` | QQ bot app ID | QQ |
+| `QQ_APP_SECRET` | QQ bot app secret | QQ |
 
-> **微信机器人无需配置**：直接运行 `uv run python wechat_main.py`，扫码登录即可使用，不需要在 `.env` 文件中配置任何参数。
+> **WeChat bot requires no configuration**: Just run `uv run python wechat_main.py`, scan the QR code, and you're ready. No `.env` parameters needed.
 
-## 快速开始
+## Quick Start
 
-### 飞书机器人
+### Feishu Bot
 
 ```python
 import asyncio
@@ -61,15 +63,15 @@ from larky import LarkBot, Message, WebhookServer
 
 async def main():
     bot = LarkBot.from_env()
-    
+
     @bot.on_message
     async def handle_message(msg: Message):
-        await bot.reply_text(msg, f"收到: {msg.get_text()}")
-    
+        await bot.reply_text(msg, f"Received: {msg.get_text()}")
+
     @bot.on_command("ping")
     async def ping(msg: Message, args: list):
         await bot.reply_text(msg, "Pong!")
-    
+
     async with bot:
         server = WebhookServer(bot, port=3000)
         await server.start()
@@ -78,7 +80,7 @@ async def main():
 asyncio.run(main())
 ```
 
-### QQ机器人
+### QQ Bot
 
 ```python
 import asyncio
@@ -86,23 +88,23 @@ from larky import QQBot, QQMessage
 
 async def main():
     bot = QQBot.from_env()
-    
+
     @bot.on_message
     async def handle_message(msg: QQMessage):
         if not msg.is_command():
-            await bot.reply_text(msg, f"收到: {msg.content}")
-    
+            await bot.reply_text(msg, f"Received: {msg.content}")
+
     @bot.on_command("time")
     async def time_cmd(msg: QQMessage, args: list):
         from datetime import datetime
-        await bot.reply_text(msg, f"时间: {datetime.now():%H:%M:%S}")
-    
+        await bot.reply_text(msg, f"Time: {datetime.now():%H:%M:%S}")
+
     await bot.run()
 
 asyncio.run(main())
 ```
 
-### 微信机器人
+### WeChat Bot
 
 ```python
 import asyncio
@@ -110,39 +112,39 @@ from larky import WeChatBot, WeChatMessage
 
 async def main():
     bot = WeChatBot.from_env()
-    
+
     @bot.on_message
     async def handle_message(msg: WeChatMessage):
         if not msg.is_command():
-            await bot.reply_text(msg, f"收到: {msg.get_text()}")
-    
+            await bot.reply_text(msg, f"Received: {msg.get_text()}")
+
     @bot.on_command("time")
     async def time_cmd(msg: WeChatMessage, args: list):
         from datetime import datetime
-        await bot.reply_text(msg, f"时间: {datetime.now():%H:%M:%S}")
-    
-    # 启动时主动发送欢迎消息（量化交易通知场景）
+        await bot.reply_text(msg, f"Time: {datetime.now():%H:%M:%S}")
+
+    # Send welcome message on startup (trading notification use case)
     async def on_ready():
         if bot.get_user_id():
-            await bot.notify("🤖 机器人已启动！")
-    
+            await bot.notify("🤖 Bot is online!")
+
     await bot.run(on_ready=on_ready)
 
 asyncio.run(main())
 ```
 
-## API 参考
+## API Reference
 
-### 飞书 LarkBot
+### Feishu LarkBot
 
 ```python
 bot = LarkBot.from_env()
 
-# 发送消息
+# Send messages
 await bot.send_text("Hello", open_id="ou_xxx")
 await bot.reply_text(message, "Reply")
 
-# 注册处理器
+# Register handlers
 @bot.on_message
 async def handler(msg: Message): ...
 
@@ -155,11 +157,11 @@ async def cmd(msg: Message, args: list): ...
 ```python
 bot = QQBot.from_env()
 
-# 发送消息
+# Send messages
 await bot.send_text("Hello", openid="xxx")
 await bot.reply_text(message, "Reply")
 
-# 注册处理器
+# Register handlers
 @bot.on_message
 async def handler(msg: QQMessage): ...
 
@@ -167,92 +169,92 @@ async def handler(msg: QQMessage): ...
 async def cmd(msg: QQMessage, args: list): ...
 ```
 
-### 微信 WeChatBot
+### WeChat WeChatBot
 
 ```python
 bot = WeChatBot.from_env()
 
-# 主动推送消息（默认发给已绑定用户，量化交易通知推荐使用）
-await bot.notify("📈 BTC 突破关键阻力位")
+# Proactive push (defaults to bound user — recommended for trading notifications)
+await bot.notify("📈 BTC broke key resistance level")
 
-# 回复消息
+# Reply to messages
 await bot.reply_text(message, "Reply")
 
-# 获取已绑定用户 ID
+# Get the bound user ID
 user_id = bot.get_user_id()
 
-# 发送输入状态
+# Send typing indicator
 await bot.send_typing(to_user_id, typing=True)
 
-# 注册处理器
+# Register handlers
 @bot.on_message
 async def handler(msg: WeChatMessage): ...
 
 @bot.on_command("cmd")
 async def cmd(msg: WeChatMessage, args: list): ...
 
-# 机器人就绪回调
+# Bot-ready callback
 async def on_ready():
-    await bot.notify("机器人已上线")
+    await bot.notify("Bot is online")
 
 await bot.run(on_ready=on_ready)
 ```
 
-### Message 对象
+### Message Objects
 
-**飞书 Message**:
+**Feishu Message**:
 ```python
-msg.message_id       # 消息 ID
-msg.content          # 消息内容
-msg.sender_open_id   # 发送者 open_id
-msg.get_text()       # 获取文本
-msg.is_command()     # 是否为指令
-msg.get_command()    # 获取指令和参数
+msg.message_id       # Message ID
+msg.content          # Message content
+msg.sender_open_id   # Sender open_id
+msg.get_text()       # Get text content
+msg.is_command()     # Check if it's a command
+msg.get_command()    # Get command and arguments
 ```
 
 **QQ QQMessage**:
 ```python
-msg.message_id       # 消息 ID
-msg.content          # 消息内容
-msg.author_openid    # 发送者 openid
-msg.is_command()     # 是否为指令
-msg.get_command()    # 获取指令和参数
+msg.message_id       # Message ID
+msg.content          # Message content
+msg.author_openid    # Sender openid
+msg.is_command()     # Check if it's a command
+msg.get_command()    # Get command and arguments
 ```
 
-**微信 WeChatMessage**:
+**WeChat WeChatMessage**:
 ```python
-msg.message_id       # 消息 ID
-msg.from_user_id     # 发送者 ID (xxx@im.wechat)
-msg.get_text()       # 获取文本
-msg.is_command()     # 是否为指令
-msg.get_command()    # 获取指令和参数
-msg.has_media()      # 是否包含媒体
-msg.get_media_type() # 获取媒体类型
-msg.context_token    # 上下文 token (用于回复)
+msg.message_id       # Message ID
+msg.from_user_id     # Sender ID (xxx@im.wechat)
+msg.get_text()       # Get text content
+msg.is_command()     # Check if it's a command
+msg.get_command()    # Get command and arguments
+msg.has_media()      # Check for media attachments
+msg.get_media_type() # Get media type
+msg.context_token    # Context token (used for replies)
 ```
 
-## 运行
+## Running
 
 ```bash
-# 飞书机器人
+# Feishu bot
 uv run python main.py
 
-# QQ机器人
+# QQ bot
 uv run python qq_main.py
 
-# 微信机器人
+# WeChat bot
 uv run python wechat_main.py
 ```
 
-## 微信机器人详解
+## WeChat Bot In Depth
 
-### 扫码登录
+### QR Code Login
 
-首次运行微信机器人时，终端会显示二维码：
+On first run, a QR code is displayed in the terminal:
 
 ```
 ==================================================
-请使用微信扫描以下二维码登录:
+Please scan the QR code with WeChat to log in:
 ==================================================
 █▀▀▀▀▀▀▀██▀██████▀██▀█▀▀▀▀█▀███▀▀▀▀▀▀▀█
 █ █▀▀▀█ █▄ ▀ ▄█  ███▀▀ ▄▀▀▄ ▄ █ █▀▀▀█ █
@@ -260,55 +262,55 @@ uv run python wechat_main.py
 ==================================================
 ```
 
-用微信扫描二维码完成授权即可登录。
+Scan the code with WeChat to authorize and log in.
 
-### 登录凭证存储
+### Credential Storage
 
-登录成功后，凭证会自动保存到本地：
+After a successful login, credentials are saved locally:
 
 ```
 ~/.openclaw/openclaw-weixin/
-├── accounts.json          # 账户索引
+├── accounts.json          # Account index
 └── accounts/
-    └── <account_id>.json  # 账户凭证
+    └── <account_id>.json  # Account credentials
 ```
 
-**下次运行无需重新扫码**，程序会自动加载已保存的账户。
+**No re-scan needed on subsequent runs** — saved accounts are loaded automatically.
 
-### 与官方 openclaw 插件兼容
+### Compatible with the Official openclaw Plugin
 
-存储格式与官方 `@tencent-weixin/openclaw-weixin` npm 插件完全兼容：
+The storage format is fully compatible with the official `@tencent-weixin/openclaw-weixin` npm plugin:
 
-- 用 Python 版本登录后，官方 npm 插件可直接使用
-- 用官方 npm 插件登录后，Python 版本也可直接使用
-- 两者共享 `~/.openclaw/` 状态目录
+- Log in with the Python version, then use the official npm plugin directly
+- Log in with the official npm plugin, then use the Python version directly
+- Both share the `~/.openclaw/` state directory
 
-### 无需公网 IP
+### No Public IP Required
 
-微信机器人使用 HTTP long-polling 方式获取消息，不需要：
-- 公网 IP
-- Webhook 回调地址
-- 端口映射
+The WeChat bot uses HTTP long-polling to receive messages — no:
+- Public IP
+- Webhook callback URL
+- Port forwarding
 
-### Token 有效期
+### Token Lifetime
 
-- Token 通常可长期有效（数天到数周）
-- Token 过期时需重新扫码登录
-- 在其他设备登录同一账号会使当前 token 失效
+- Tokens are typically valid for extended periods (days to weeks)
+- When a token expires, re-scan the QR code to log in again
+- Logging into the same account on another device invalidates the current token
 
-### 会话保护机制 (Session Guard)
+### Session Guard
 
-当微信服务器返回会话过期错误（errcode -14）时，系统会自动：
+When the WeChat server returns a session expiry error (errcode -14), the system will:
 
-1. **暂停服务 1 小时**：避免频繁无效请求导致 IP 被封禁
-2. **发送邮件通知**：提醒用户重新扫码登录
-3. **自动恢复**：重新登录后自动清除暂停状态
+1. **Pause for 1 hour**: Avoid repeated invalid requests that could lead to an IP ban
+2. **Send email notification**: Alert the user to re-scan the QR code
+3. **Auto-recovery**: The pause is cleared automatically after re-login
 
-**触发条件**：
-- 用户在微信中删除/解绑了机器人
-- Token 长期未使用导致过期
+**Triggers**:
+- The bot was deleted/unlinked in WeChat
+- The token expired from prolonged inactivity
 
-**邮件通知配置**：
+**Email notification configuration**:
 
 ```env
 BACKUP_EMAIL_FROM=bot@example.com
@@ -317,76 +319,76 @@ BACKUP_EMAIL_SMTP=smtp.gmail.com
 BACKUP_EMAIL_PORT=587
 BACKUP_EMAIL_USER=your@gmail.com
 BACKUP_EMAIL_PASSWORD=your-app-password
-SERVER_NAME=my-server  # 可选，用于邮件内容标识
+SERVER_NAME=my-server  # Optional, identifies the server in emails
 ```
 
-> **端口说明**：
-> - `587` 端口：使用 STARTTLS 方式连接
-> - `465` 端口：使用 SSL 直接连接（推荐国内邮箱如 139、QQ 邮箱使用）
+> **Port notes**:
+> - `587`: STARTTLS connection
+> - `465`: Direct SSL connection (recommended for Chinese email providers like 139, QQ Mail)
 
-### 数据持久化
+### Data Persistence
 
-微信机器人会自动持久化以下数据，重启后自动恢复：
+The WeChat bot automatically persists the following data, surviving restarts:
 
 ```
 ~/.openclaw/openclaw-weixin/accounts/
-├── <account_id>.json              # 账户凭证 (token, baseUrl, userId)
-├── <account_id>.sync.json         # 消息同步缓冲区 (get_updates_buf)
-└── <account_id>.context-tokens.json  # 上下文令牌 (用于回复消息)
+├── <account_id>.json               # Account credentials (token, baseUrl, userId)
+├── <account_id>.sync.json          # Message sync buffer (get_updates_buf)
+└── <account_id>.context-tokens.json # Context tokens (used for message replies)
 ```
 
-**持久化内容**：
-| 文件 | 用途 |
-|------|------|
-| `*.json` | 登录凭证，避免重复扫码 |
-| `*.sync.json` | 消息同步位置，避免消息丢失/重复 |
-| `*.context-tokens.json` | 回复令牌，确保消息能正确送达 |
+**Persisted content**:
+| File | Purpose |
+|------|---------|
+| `*.json` | Login credentials — avoid re-scanning |
+| `*.sync.json` | Message sync position — prevent lost/duplicate messages |
+| `*.context-tokens.json` | Reply tokens — ensure messages are delivered correctly |
 
-### 主动推送消息
+### Proactive Push
 
-微信机器人支持主动推送消息，非常适合量化交易通知场景：
+The WeChat bot supports proactive push messages, ideal for quantitative trading notifications:
 
 ```python
-# 最简单的方式 - 只需一行代码
-await bot.notify("📈 BTC 突破 $100,000")
+# Simplest usage — just one line
+await bot.notify("📈 BTC broke $100,000")
 ```
 
-`notify()` 方法会自动发送给已绑定的用户，无需指定 `to_user_id`。
+`notify()` automatically sends to the bound user — no need to specify `to_user_id`.
 
-### on_ready 回调
+### on_ready Callback
 
-`on_ready` 是一个回调函数，在机器人**完全就绪后**自动执行。用于：
-- 发送启动通知
-- 启动后台任务
-- 初始化资源
+`on_ready` is a callback that executes once the bot is **fully ready**. Use it for:
+- Sending startup notifications
+- Launching background tasks
+- Initializing resources
 
 ```python
 async def on_ready():
-    # 机器人已登录，可以安全地发送消息
+    # Bot is logged in — safe to send messages
     if bot.get_user_id():
-        await bot.notify("🤖 机器人已上线")
+        await bot.notify("🤖 Bot is online")
 
 await bot.run(on_ready=on_ready)
 ```
 
-**为什么需要 on_ready？**
+**Why on_ready?**
 
-`run()` 方法内部会执行登录流程，在登录完成前调用 `notify()` 会失败。`on_ready` 确保你的代码在登录完成后才执行。
+The `run()` method performs the login flow internally. Calling `notify()` before login completes will fail. `on_ready` ensures your code only runs after login is done.
 
 ```python
-# ❌ 错误：run() 之前调用会失败
-await bot.notify("启动")  # 报错：Not logged in
+# ❌ Wrong: calling before run() will fail
+await bot.notify("Starting")  # Error: Not logged in
 await bot.run()
 
-# ✅ 正确：在 on_ready 中调用
+# ✅ Correct: call inside on_ready
 async def on_ready():
-    await bot.notify("启动")
+    await bot.notify("Starting")
 await bot.run(on_ready=on_ready)
 ```
 
-### 量化交易通知示例
+### Quantitative Trading Notification Example
 
-完整的量化交易通知示例：
+A complete trading notification example:
 
 ```python
 import asyncio
@@ -395,41 +397,41 @@ from larky import WeChatBot, WeChatMessage
 bot = WeChatBot.from_env()
 
 async def price_monitor():
-    """监控价格并在突破时发送通知"""
+    """Monitor price and send notification on breakout"""
     while True:
         price = await get_btc_price()
         if price > 100000:
-            await bot.notify(f"📈 BTC 突破 $100,000！当前: ${price:,}")
+            await bot.notify(f"📈 BTC broke $100,000! Current: ${price:,}")
         await asyncio.sleep(60)
 
 async def on_ready():
-    # 发送启动通知
-    await bot.notify("🤖 量化交易机器人已启动")
-    # 启动价格监控任务
+    # Send startup notification
+    await bot.notify("🤖 Trading bot started")
+    # Launch price monitor
     asyncio.create_task(price_monitor())
 
 async def main():
     @bot.on_command("status")
     async def status(msg: WeChatMessage, args: list):
         price = await get_btc_price()
-        await bot.reply_text(msg, f"📊 当前 BTC 价格: ${price:,}")
-    
+        await bot.reply_text(msg, f"📊 Current BTC price: ${price:,}")
+
     await bot.run(on_ready=on_ready)
 
 asyncio.run(main())
 ```
 
-### 多进程架构
+### Multi-Process Architecture
 
-当多个量化程序需要共享同一个微信账号时，使用 `WeChatService` + `WeChatClient` 架构：
+When multiple trading programs need to share one WeChat account, use the `WeChatService` + `WeChatClient` architecture:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                      服务器                              │
+│                       Server                             │
 │                                                         │
 │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐ │
-│  │ 量化程序 A  │    │ 量化程序 B  │    │ 量化程序 C  │ │
-│  │ (BTC监控)   │    │ (ETH监控)   │    │ (套利策略)  │ │
+│  │  Bot A      │    │  Bot B      │    │  Bot C      │ │
+│  │ (BTC watch) │    │ (ETH watch) │    │ (Arbitrage) │ │
 │  └──────┬──────┘    └──────┬──────┘    └──────┬──────┘ │
 │         │                  │                  │        │
 │         └──────────────────┼──────────────────┘        │
@@ -440,169 +442,169 @@ asyncio.run(main())
 │                            │                           │
 │                            ▼                           │
 │                   ┌─────────────────┐                  │
-│                   │  WeChatService  │ ← 唯一微信连接   │
-│                   └─────────────────┘                  │
+│                   │  WeChatService  │ ← single WeChat  │
+│                   └─────────────────┘   connection     │
 └─────────────────────────────────────────────────────────┘
 ```
 
-**启动步骤：**
+**Startup steps:**
 
 ```bash
-# 1. 启动 Redis
+# 1. Start Redis
 redis-server
 
-# 2. 启动微信消息服务（唯一微信连接）
+# 2. Start WeChat message service (the single WeChat connection)
 uv run python -m larky
 
-# 3. 启动量化程序（可同时运行多个）
+# 3. Start trading programs (multiple can run simultaneously)
 uv run python examples/trading_bot_btc.py
 uv run python examples/trading_bot_eth.py
 ```
 
-**量化程序使用 WeChatClient：**
+**Trading programs use WeChatClient:**
 
 ```python
 from larky import WeChatClient
 
 client = WeChatClient(source="btc-monitor")
 
-# 发送通知
-await client.notify("📈 BTC 突破 $100,000")
+# Send notifications
+await client.notify("📈 BTC broke $100,000")
 
-# 接收消息
+# Receive messages
 @client.message_handler
 async def on_message(data: dict):
     text = data.get("text", "")
-    if "价格" in text:
-        await client.notify(f"当前价格: ${await get_price()}")
+    if "price" in text:
+        await client.notify(f"Current price: ${await get_price()}")
 
 await client.run()
 ```
 
-**环境变量：**
+**Environment variables:**
 
 ```env
 REDIS_URL=redis://localhost:6379
-# 或
+# or
 REDIS_HOST=localhost
 REDIS_PORT=6379
 ```
 
-### 故障处理
+### Fault Handling
 
-微信消息服务内置以下故障处理机制：
+The WeChat message service includes these fault-handling mechanisms:
 
-**1. 掉线自动重连**
+**1. Auto-Reconnect on Disconnect**
 
-网络波动导致断开时，服务会自动重连（默认最多 10 次）。
+When the network drops, the service automatically reconnects (default: up to 10 retries).
 
-**2. 会话过期保护 (Session Guard)**
+**2. Session Guard**
 
-当微信服务器返回会话过期错误（errcode -14）时：
-- 自动暂停服务 1 小时，避免频繁请求被封禁
-- 发送邮件通知用户重新扫码登录
-- 重新登录后自动恢复
+When the WeChat server returns a session expiry error (errcode -14):
+- Auto-pauses the service for 1 hour to avoid IP bans from repeated requests
+- Sends email notification to re-scan the QR code
+- Auto-resumes after re-login
 
-邮件配置见上方 [会话保护机制](#会话保护机制-session-guard)。
+See [Session Guard](#session-guard) above for email configuration.
 
-**3. 消息优先级与备份发送**
+**3. Message Priority & Backup Delivery**
 
-量化程序发送的消息支持两种优先级：
-
-```python
-# 普通消息（默认）- 离线时丢弃
-await client.notify("📊 日常报告", priority="normal")
-
-# 高优先级消息 - 离线时邮件备份 + 恢复后重发
-await client.notify("🚨 紧急通知：止损触发", priority="high")
-```
-
-| 优先级 | 在线时 | 离线时 |
-|--------|--------|--------|
-| `normal`（默认） | 直接发送微信 | 消息丢弃 |
-| `high` | 直接发送微信 | 1. 消息入队保存<br>2. 并行发送邮件备份<br>3. 微信恢复后自动重发 |
-
-**使用场景示例：**
+Messages from trading programs support two priority levels:
 
 ```python
-# 日常报告 - 普通优先级，离线时无需通知
-await client.notify("📊 每日盈亏: +$1,234", priority="normal")
+# Normal priority (default) — dropped when offline
+await client.notify("📊 Daily report", priority="normal")
 
-# 重要交易信号 - 高优先级，确保送达
-await client.notify("🚨 止损触发: BTC 跌破 $95,000", priority="high")
-
-# 风险预警 - 高优先级
-await client.notify("⚠️ 账户保证金不足，请及时处理", priority="high")
+# High priority — email backup when offline + redelivered on recovery
+await client.notify("🚨 URGENT: Stop-loss triggered", priority="high")
 ```
 
-**4. 状态监控**
+| Priority | Online | Offline |
+|----------|--------|---------|
+| `normal` (default) | Sent via WeChat | Dropped |
+| `high` | Sent via WeChat | 1. Queued for later<br>2. Email backup sent in parallel<br>3. Auto-redelivered when WeChat recovers |
 
-客户端可监听服务状态变化：
+**Usage examples:**
+
+```python
+# Daily report — normal priority, no need to notify when offline
+await client.notify("📊 Daily P&L: +$1,234", priority="normal")
+
+# Important trade signal — high priority, must be delivered
+await client.notify("🚨 Stop-loss triggered: BTC below $95,000", priority="high")
+
+# Risk alert — high priority
+await client.notify("⚠️ Margin call — action required", priority="high")
+```
+
+**4. Status Monitoring**
+
+Clients can listen for service status changes:
 
 ```python
 @client.status_handler
 async def on_status(data: dict):
     if data.get("need_login"):
-        # 服务需要重新登录
-        logger.warning("微信服务需要重新扫码登录")
+        # Service needs re-login
+        logger.warning("WeChat service needs QR re-scan")
     elif data.get("status") == "offline":
-        # 服务离线
-        logger.warning("微信服务离线")
+        # Service is offline
+        logger.warning("WeChat service offline")
 ```
 
-## 平台配置
+## Platform Setup
 
-### 飞书开放平台
+### Feishu Open Platform
 
-1. 在 [飞书开放平台](https://open.feishu.cn/) 创建企业自建应用
-2. 开启机器人能力
-3. 配置事件订阅，添加 `im.message.receive_v1` 事件
-4. 设置 Webhook 地址
+1. Create a custom app on the [Feishu Open Platform](https://open.feishu.cn/)
+2. Enable the bot capability
+3. Configure event subscriptions, add the `im.message.receive_v1` event
+4. Set the webhook URL
 
-### QQ开放平台
+### QQ Open Platform
 
-1. 在 [QQ开放平台](https://q.qq.com/) 创建机器人
-2. 获取 App ID 和 App Secret
-3. 使用 WebSocket 方式连接，无需配置回调地址
+1. Create a bot on the [QQ Open Platform](https://q.qq.com/)
+2. Obtain the App ID and App Secret
+3. Uses WebSocket connections — no callback URL needed
 
-### 微信机器人
+### WeChat Bot
 
-微信机器人基于 `@tencent-weixin/openclaw-weixin` 协议实现，无需额外配置开放平台账号。
+The WeChat bot is built on the `@tencent-weixin/openclaw-weixin` protocol — no open-platform developer account required.
 
-## 项目结构
+## Project Structure
 
 ```
 larky/
 ├── larky/
 │   ├── __init__.py
-│   ├── __main__.py         # 微信消息服务入口
-│   ├── bot.py              # 飞书 LarkBot
-│   ├── config.py           # 飞书配置
-│   ├── handlers.py         # 飞书 Webhook
-│   ├── models.py           # 飞书模型
-│   ├── qq_bot.py           # QQ机器人核心
-│   ├── qq_config.py        # QQ配置
-│   ├── qq_models.py        # QQ模型
-│   ├── wechat_bot.py       # 微信机器人核心
-│   ├── wechat_config.py    # 微信配置
-│   ├── wechat_models.py    # 微信模型
-│   └── wechat_service.py   # 微信消息服务（多进程架构）
+│   ├── __main__.py         # WeChat message service entry point
+│   ├── bot.py              # Feishu LarkBot
+│   ├── config.py           # Feishu configuration
+│   ├── handlers.py         # Feishu webhook
+│   ├── models.py           # Feishu models
+│   ├── qq_bot.py           # QQ bot core
+│   ├── qq_config.py        # QQ configuration
+│   ├── qq_models.py        # QQ models
+│   ├── wechat_bot.py       # WeChat bot core
+│   ├── wechat_config.py    # WeChat configuration
+│   ├── wechat_models.py    # WeChat models
+│   └── wechat_service.py   # WeChat message service (multi-process)
 ├── examples/
-│   ├── trading_bot_btc.py  # BTC 监控示例
-│   └── trading_bot_eth.py  # ETH 监控示例
+│   ├── trading_bot_btc.py  # BTC monitoring example
+│   └── trading_bot_eth.py  # ETH monitoring example
 ├── tests/
-│   └── test_wechat_priority.py  # 微信优先级功能测试
-├── main.py                 # 飞书示例
-├── qq_main.py              # QQ示例
-├── wechat_main.py          # 微信示例
+│   └── test_wechat_priority.py  # WeChat priority feature tests
+├── main.py                 # Feishu example
+├── qq_main.py              # QQ example
+├── wechat_main.py          # WeChat example
 └── pyproject.toml
 ```
 
-## 在其他项目中使用
+## Using in Other Projects
 
-### 方式一：本地路径安装（推荐）
+### Option 1: Local Path Install (Recommended)
 
-在目标项目的 `pyproject.toml` 中添加：
+Add to the target project's `pyproject.toml`:
 
 ```toml
 [project]
@@ -611,21 +613,21 @@ dependencies = [
 ]
 ```
 
-或使用 uv：
+Or with uv:
 
 ```bash
 uv add /path/to/larky
 ```
 
-### 方式二：Git 安装
+### Option 2: Git Install
 
-如果 larky 已推送到 Git 仓库：
+If larky is pushed to a Git repository:
 
 ```bash
 uv add git+https://github.com/yourname/larky.git
 ```
 
-或在 `pyproject.toml` 中：
+Or in `pyproject.toml`:
 
 ```toml
 [project]
@@ -634,20 +636,20 @@ dependencies = [
 ]
 ```
 
-### 方式三：发布到 PyPI
+### Option 3: Publish to PyPI
 
 ```bash
 uv build
 uv publish
 ```
 
-然后其他项目可以直接安装：
+Then other projects can install directly:
 
 ```bash
 uv add larky
 ```
 
-### 使用示例
+### Usage Example
 
 ```python
 import asyncio
@@ -655,37 +657,37 @@ from larky.wechat_service import WeChatClient
 
 async def main():
     client = WeChatClient(source="my-trading-bot")
-    
+
     @client.message_handler
     async def on_message(data: dict):
         text = data.get("text", "")
-        if "状态" in text:
-            await client.notify("✅ 服务运行正常")
-    
+        if "status" in text:
+            await client.notify("✅ Service running normally")
+
     await client.run()
 
 asyncio.run(main())
 ```
 
-**环境变量配置**（`.env`）：
+**Environment variables** (`.env`):
 
 ```env
 REDIS_URL=redis://localhost:6379
-# 或
+# or
 REDIS_HOST=localhost
 REDIS_PORT=6379
 ```
 
-## 测试
+## Tests
 
-运行单元测试：
+Run unit tests:
 
 ```bash
-# 运行微信优先级功能测试
+# Run WeChat priority feature tests
 uv run python tests/test_wechat_priority.py
 ```
 
-## 依赖
+## Dependencies
 
 - Python >= 3.13
 - aiohttp >= 3.9.0
@@ -694,30 +696,30 @@ uv run python tests/test_wechat_priority.py
 - qrcode >= 8.2
 - redis >= 5.0.0
 
-## 更新日志
+## Changelog
 
-### 2026-04-05 - 微信协议适配更新
+### 2026-04-05 — WeChat Protocol Adaptation Update
 
-适配微信官方 `@tencent-weixin/openclaw-weixin` v2.1.6 协议变更：
+Adapted to WeChat official `@tencent-weixin/openclaw-weixin` v2.1.6 protocol changes:
 
-**API 变更**：
-- 新增 `iLink-App-Id` 和 `iLink-App-ClientVersion` 必需 HTTP Headers
-- 支持 `longpolling_timeout_ms` 动态超时调整
+**API Changes**:
+- Added required `iLink-App-Id` and `iLink-App-ClientVersion` HTTP headers
+- Support for dynamic `longpolling_timeout_ms` adjustment
 
-**Session Guard 机制**：
-- 会话过期（errcode -14）时自动暂停 1 小时
-- 发送邮件通知用户重新扫码登录
-- 重新登录后自动恢复服务
+**Session Guard**:
+- Auto-pause for 1 hour on session expiry (errcode -14)
+- Email notification for QR re-scan
+- Auto-recovery after re-login
 
-**QR Login 增强**：
-- 支持 `scaned_but_redirect` IDC 重定向
-- 二维码过期自动刷新（最多 3 次）
-- 扫码状态实时提示
+**QR Login Enhancements**:
+- Support for `scaned_but_redirect` IDC redirection
+- Auto-refresh expired QR codes (up to 3 times)
+- Real-time scan status feedback
 
-**数据持久化**：
-- Context Token 持久化到 `*.context-tokens.json`
-- 同步缓冲区持久化到 `*.sync.json`
-- 服务重启后自动恢复状态
+**Data Persistence**:
+- Context tokens persisted to `*.context-tokens.json`
+- Sync buffer persisted to `*.sync.json`
+- State auto-restored after service restart
 
 ## License
 
