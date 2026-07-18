@@ -390,13 +390,19 @@ class WeChatBot:
         headers = self._build_headers(token or (self._account.token if self._account else None), body)
         timeout = (timeout_ms or self.config.api_timeout_ms) / 1000
 
-        logger.debug(f"POST {endpoint}")
+        logger.debug(f"POST {endpoint} body={body[:200]}...")
         async with self._session.post(url, data=body, headers=headers, timeout=timeout) as resp:
             raw_text = await resp.text()
-            logger.debug(f"Response status={resp.status}")
+            logger.info(f"API {endpoint} status={resp.status} body={raw_text[:500]}")
             if not resp.ok:
                 raise WeChatError(f"API error {resp.status}: {raw_text}")
-            return json.loads(raw_text)
+            data = json.loads(raw_text)
+            ret = data.get("ret", 0)
+            errcode = data.get("errcode", 0)
+            if ret != 0 or errcode != 0:
+                errmsg = data.get("errmsg", "")
+                logger.error(f"API {endpoint} business error: ret={ret}, errcode={errcode}, errmsg={errmsg}")
+            return data
 
     async def _api_get(
         self,

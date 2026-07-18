@@ -2,7 +2,7 @@ import os
 from dataclasses import dataclass
 
 
-CHANNEL_VERSION = "2.1.6"
+CHANNEL_VERSION = "2.4.3"
 ILINK_APP_ID = "bot"
 
 
