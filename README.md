@@ -621,10 +621,12 @@ uv add /path/to/larky
 
 ### Option 2: Git Install
 
-If larky is pushed to a Git repository:
-
 ```bash
-uv add git+https://github.com/yourname/larky.git
+# From GitHub
+uv add git+https://github.com/hylyq/larky.git
+
+# From Gitee (China mirror)
+uv add git+https://gitee.com/JiyunMa/larky.git
 ```
 
 Or in `pyproject.toml`:
@@ -632,7 +634,9 @@ Or in `pyproject.toml`:
 ```toml
 [project]
 dependencies = [
-    "larky @ git+https://github.com/yourname/larky.git",
+    "larky @ git+https://github.com/hylyq/larky.git",
+    # Or the Gitee mirror:
+    # "larky @ git+https://gitee.com/JiyunMa/larky.git",
 ]
 ```
 

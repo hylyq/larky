@@ -621,10 +621,12 @@ uv add /path/to/larky
 
 ### 方式二：Git 安装
 
-如果 larky 已推送到 Git 仓库：
-
 ```bash
-uv add git+https://github.com/yourname/larky.git
+# 从 GitHub
+uv add git+https://github.com/hylyq/larky.git
+
+# 从 Gitee（国内镜像）
+uv add git+https://gitee.com/JiyunMa/larky.git
 ```
 
 或在 `pyproject.toml` 中：
@@ -632,7 +634,9 @@ uv add git+https://github.com/yourname/larky.git
 ```toml
 [project]
 dependencies = [
-    "larky @ git+https://github.com/yourname/larky.git",
+    "larky @ git+https://github.com/hylyq/larky.git",
+    # 或使用 Gitee 镜像：
+    # "larky @ git+https://gitee.com/JiyunMa/larky.git",
 ]
 ```
 
