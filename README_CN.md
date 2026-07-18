@@ -700,28 +700,94 @@ uv run python tests/test_wechat_priority.py
 - qrcode >= 8.2
 - redis >= 5.0.0
 
+## 微信协议兼容性维护指南
+
+微信机器人的实现基于官方 `@tencent-weixin/openclaw-weixin` npm 插件的 iLink 协议。当官方插件更新时，微信服务端可能要求新的字段、拒绝旧协议版本或改变 API 行为——这些都没有公开文档。以下流程帮助你通过对比官方源码来诊断和修复此类问题。
+
+### 何时需要检查协议变动
+
+- 消息日志显示发送成功但微信手机端收不到（API 返回 HTTP 200 但响应体中包含业务错误码）
+- 微信能收消息但机器人发不出（或反之）
+- 官方 npm 插件最近有新版本发布
+- 昨天能用今天突然不行
+
+### 诊断流程
+
+**1. 查看官方插件最新版本：**
+
+```bash
+npm view @tencent-weixin/openclaw-weixin version
+```
+
+**2. 下载并查看官方源码：**
+
+npm 包内包含完整的 TypeScript 源文件（`.ts`），不只是编译产物：
+
+```bash
+mkdir /tmp/openclaw-weixin && cd /tmp/openclaw-weixin
+npm pack @tencent-weixin/openclaw-weixin
+tar xzf tencent-weixin-openclaw-weixin-*.tgz
+```
+
+**3. 对比关键文件：**
+
+| 官方源码 | larky 对应文件 | 检查重点 |
+|---|---|---|
+| `package/src/api/api.ts` | `larky/wechat_bot.py:_api_request` | 请求体结构、`base_info` 字段、错误处理 |
+| `package/src/api/types.ts` | `larky/wechat_models.py` | 消息字段定义、新增枚举值、新增接口 |
+| `package/src/messaging/send.ts` | `larky/wechat_bot.py:send_text` | `sendmessage` 请求体格式、必填字段 |
+| `package/src/messaging/inbound.ts` | `larky/wechat_bot.py:get_updates` | Context Token 处理、消息解析 |
+| `package/src/channel.ts` | `larky/wechat_service.py` | 启动/关闭生命周期、`notifyStart`/`notifyStop` |
+| `package/src/api/session-guard.ts` | `larky/wechat_bot.py:SessionGuard` | 会话过期错误码 |
+
+**4. 常见的协议变动：**
+
+| 区域 | 检查点 | 示例 |
+|---|---|---|
+| `base_info` | 每个 API 请求都必须包含 `{"base_info": {"channel_version": "...", "bot_agent": "..."}}` —— 不仅是 `getupdates` | 2026-07: `sendmessage` 缺少 `base_info` → `ret=-2 prepare failed` |
+| `CHANNEL_VERSION` | 必须与 npm 包最新版本号一致 | 在 `wechat_config.py` 中配置，取值自 npm 包的 `package.json` 中的 `version` 字段 |
+| 新增端点 | 官方插件可能在启动/关闭时调用新的生命周期端点 | 官方新增了 `notifyStart` / `notifyStop` |
+| 新增消息类型 | 检查 `MessageItemType` 和 `MessageType` 枚举 | 官方 v2.4.6 新增 `TOOL_CALL_START=11`, `TOOL_CALL_RESULT=12` |
+| HTTP Headers | 验证 `iLink-App-Id`、`iLink-App-ClientVersion`、`SKRouteTag` | 对比官方 `api.ts` 中的 `buildCommonHeaders()` |
+| 错误处理 | `sendmessage` 应在 `ret != 0` 时抛异常；`getUpdates` 应优雅处理错误 | 官方 `api.ts:515` 检查 `resp.ret !== 0` |
+
+**5. 更新 CHANNEL_VERSION 并重测：**
+
+修复协议问题后，更新 `wechat_config.py`：
+
+```python
+CHANNEL_VERSION = "2.4.6"  # 设置为 npm 包的最新版本号
+```
+
+然后用 `LOG_LEVEL=DEBUG` 部署验证，确认 API 响应都返回 `ret=0`。
+
+### 案例：2026-07 协议修复
+
+**症状**：日志显示消息发送成功，但微信手机端完全收不到。
+
+**排查过程**：
+1. 下载 `@tencent-weixin/openclaw-weixin@2.4.6`，查看 `api.ts` 中的 `sendMessage()` 函数
+2. 发现官方代码在每个 API 调用中都包裹了 `base_info: buildBaseInfo()`：
+   ```typescript
+   body: JSON.stringify({ ...params.body, base_info: buildBaseInfo() })
+   ```
+3. larky 只在 `getUpdates` 中带了 `base_info`——`sendmessage`、`getconfig`、`sendtyping` 全都没有
+
+**修复**：给所有 API 请求体添加 `base_info`，新增 `notifyStart`/`notifyStop` 生命周期调用，将 `CHANNEL_VERSION` 升级到 `2.4.6`。同时在 `_api_request` 中增加响应体日志，方便未来快速发现业务错误码。
+
 ## 更新日志
 
+### 2026-07-18 - 协议同步至 @tencent-weixin/openclaw-weixin v2.4.6
+
+- **关键修复**：给 `sendmessage`、`getconfig`、`sendtyping` API 请求添加 `base_info`（channel_version + bot_agent）——匹配官方插件 v2.4.6 请求格式。修复发送消息时的 `ret=-2 prepare failed` 错误。
+- 新增 `notifyStart` 和 `notifyStop` 生命周期 API 调用（bot 启动/关闭时）
+- 新增 `check_context_health()` 方法和定期 keepalive 探活（默认每 4 小时，可通过 `WECHAT_KEEPALIVE_INTERVAL_SEC` 配置）
+- `send_text` 在遇到 `prepare failed` 时自动清除过期 token 并无 token 重试一次，失败后回队列重试（最多 3 次）
+- API 响应成功时输出 DEBUG 日志，失败时（ret/errcode 非零）输出 ERROR 日志
+- 修复清除所有 context token 后磁盘文件未删除的问题
+- 修复服务关闭时未调用 `notify_stop` 的问题
+
 ### 2026-04-05 - 微信协议适配更新
-
-适配微信官方 `@tencent-weixin/openclaw-weixin` v2.1.6 协议变更：
-
-**API 变更**：
-- 新增 `iLink-App-Id` 和 `iLink-App-ClientVersion` 必需 HTTP Headers
-- 支持 `longpolling_timeout_ms` 动态超时调整
-
-**Session Guard 机制**：
-- 会话过期（errcode -14）时自动暂停 1 小时
-- 发送邮件通知用户重新扫码登录
-- 重新登录后自动恢复服务
-
-**QR Login 增强**：
-- 支持 `scaned_but_redirect` IDC 重定向
-- 二维码过期自动刷新（最多 3 次）
-- 扫码状态实时提示
-
-**数据持久化**：
-- Context Token 持久化到 `*.context-tokens.json`
 - 同步缓冲区持久化到 `*.sync.json`
 - 服务重启后自动恢复状态
 

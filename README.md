@@ -700,7 +700,94 @@ uv run python tests/test_wechat_priority.py
 - qrcode >= 8.2
 - redis >= 5.0.0
 
+## Maintaining WeChat Protocol Compatibility
+
+The WeChat bot is a Python reimplementation of the official `@tencent-weixin/openclaw-weixin` npm plugin's iLink protocol. When the official plugin updates, the WeChat server may require new fields, reject old protocol versions, or change API behavior — all without public documentation. The following process helps diagnose and fix such issues by comparing against the official TypeScript source code.
+
+### When to Suspect a Protocol Drift
+
+- Messages stop being delivered but **no errors appear in logs** (API returns HTTP 200 + business error in response body)
+- WeChat receives messages but the bot cannot send (or vice versa)
+- The official npm plugin has released a new version recently
+- The bot was working fine yesterday but stopped today
+
+### Diagnostic Process
+
+**1. Check the latest official plugin version:**
+
+```bash
+npm view @tencent-weixin/openclaw-weixin version
+```
+
+**2. Download and inspect the official source code:**
+
+The npm package includes full TypeScript source (`.ts` files), not just compiled output:
+
+```bash
+mkdir /tmp/openclaw-weixin && cd /tmp/openclaw-weixin
+npm pack @tencent-weixin/openclaw-weixin
+tar xzf tencent-weixin-openclaw-weixin-*.tgz
+```
+
+**3. Compare key files against larky's implementation:**
+
+| Official Source | larky Equivalent | What to Check |
+|---|---|---|
+| `package/src/api/api.ts` | `larky/wechat_bot.py:_api_request` | Request payload structure, `base_info` fields, error handling |
+| `package/src/api/types.ts` | `larky/wechat_models.py` | Message field definitions, new enum values, new interfaces |
+| `package/src/messaging/send.ts` | `larky/wechat_bot.py:send_text` | `sendmessage` payload format, required fields |
+| `package/src/messaging/inbound.ts` | `larky/wechat_bot.py:get_updates` | Context token handling, message parsing |
+| `package/src/channel.ts` | `larky/wechat_service.py` | Startup/shutdown lifecycle, `notifyStart`/`notifyStop` |
+| `package/src/api/session-guard.ts` | `larky/wechat_bot.py:SessionGuard` | Session expiry error codes |
+
+**4. Common sources of drift:**
+
+| Area | What to Check | Example |
+|---|---|---|
+| `base_info` | Every API request must include `{"base_info": {"channel_version": "...", "bot_agent": "..."}}` — not just `getupdates` | 2026-07: `sendmessage` was missing `base_info` → `ret=-2 prepare failed` |
+| `CHANNEL_VERSION` | Must match the latest npm package version | Set in `wechat_config.py`, read from `package.json `version` field in the npm package |
+| New endpoints | Official plugin may call lifecycle endpoints on startup/shutdown | `notifyStart` / `notifyStop` were added to the official plugin |
+| New message types | Check `MessageItemType` and `MessageType` enums | Official v2.4.6 added `TOOL_CALL_START=11`, `TOOL_CALL_RESULT=12` |
+| Headers | Verify `iLink-App-Id`, `iLink-App-ClientVersion`, `SKRouteTag` | Compare `buildCommonHeaders()` in official `api.ts` |
+| Error handling | `sendmessage` should throw on `ret != 0`; `getUpdates` handles errors gracefully | Official `api.ts:515` checks `resp.ret !== 0` |
+
+**5. Update CHANNEL_VERSION and retest:**
+
+After fixing protocol issues, update `wechat_config.py`:
+
+```python
+CHANNEL_VERSION = "2.4.6"  # Set to match npm package version
+```
+
+Then deploy and verify with `LOG_LEVEL=DEBUG` to confirm API responses show `ret=0`.
+
+### Example: 2026-07 Protocol Fix
+
+**Symptom**: Messages appeared to send successfully in logs, but WeChat client never received them.
+
+**Investigation**:
+1. Downloaded `@tencent-weixin/openclaw-weixin@2.4.6` and inspected `api.ts:sendMessage()`
+2. Found the official code wraps every API call with `base_info: buildBaseInfo()`:
+   ```typescript
+   body: JSON.stringify({ ...params.body, base_info: buildBaseInfo() })
+   ```
+3. larky only included `base_info` in `getUpdates` — `sendmessage`, `getconfig`, and `sendtyping` were all missing it
+
+**Fix**: Added `base_info` to all API request payloads, added `notifyStart`/`notifyStop` lifecycle calls, bumped `CHANNEL_VERSION` to `2.4.6`. Also added `_api_request` response body logging to surface business error codes in the future.
+
+---
+
 ## Changelog
+
+### 2026-07-18 — Protocol Sync with @tencent-weixin/openclaw-weixin v2.4.6
+
+- **Critical**: Added `base_info` (channel_version + bot_agent) to `sendmessage`, `getconfig`, and `sendtyping` API requests — matches official plugin v2.4.6 payload format. Fixes `ret=-2 prepare failed` when sending messages.
+- Added `notifyStart` and `notifyStop` lifecycle API calls on bot startup/shutdown
+- Added `check_context_health()` method and periodic keepalive probe (every 4h, configurable via `WECHAT_KEEPALIVE_INTERVAL_SEC`)
+- `send_text` auto-retries once without context_token on `prepare failed`, then requeues with backoff (max 3 retries)
+- API responses now logged at DEBUG level (success) / ERROR level (business errors with non-zero ret/errcode)
+- Fixed stale context token file not being deleted when all tokens cleared
+- Fixed missing `notify_stop` call on service shutdown
 
 ### 2026-04-05 — WeChat Protocol Adaptation Update
 
