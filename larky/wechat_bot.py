@@ -666,6 +666,41 @@ class WeChatBot:
     async def reply_text(self, message: WeChatMessage, text: str) -> dict[str, Any]:
         return await self.send_text(text, message.from_user_id, message.context_token)
 
+    async def check_context_health(self) -> bool:
+        """Check whether the context_token is still valid for sending messages.
+
+        Returns True if healthy, False if the token has expired.
+        """
+        if not self._account:
+            return False
+
+        user_id = self._account.user_id
+        if not user_id:
+            return False
+
+        ctx_token = self._get_context_token(user_id)
+        if not ctx_token:
+            logger.debug("No context token to check — user hasn't messaged yet")
+            return False
+
+        try:
+            data = await self._api_request(
+                "ilink/bot/getconfig",
+                {"ilink_user_id": user_id, "context_token": ctx_token},
+                timeout_ms=10000,
+            )
+            ret = data.get("ret", 0)
+            if ret == -2:
+                logger.warning(f"Context token health check failed: ret={ret}, clearing stale token")
+                self._clear_context_token(user_id)
+                return False
+            if ret != 0:
+                logger.warning(f"Context token health check: ret={ret}, errmsg={data.get('errmsg', '')}")
+            return ret == 0
+        except Exception as e:
+            logger.warning(f"Context token health check error: {e}")
+            return False
+
     async def send_typing(self, to_user_id: str, typing: bool = True) -> None:
         if not self._account:
             raise WeChatError("Not logged in")

@@ -272,6 +272,7 @@ class WeChatService:
         sender_task = asyncio.create_task(self._sender_loop())
         health_task = asyncio.create_task(self._health_check_loop())
         pending_task = asyncio.create_task(self._process_pending_messages())
+        keepalive_task = asyncio.create_task(self._context_keepalive_loop())
 
         async def on_ready():
             self._status.connected = True
@@ -294,7 +295,7 @@ class WeChatService:
         finally:
             self._running = False
             self._status.connected = False
-            for task in [sender_task, health_task, pending_task]:
+            for task in [sender_task, health_task, pending_task, keepalive_task]:
                 task.cancel()
                 try:
                     await task
@@ -439,6 +440,38 @@ uv run python -m larky.wechat_service
         while self._running:
             await asyncio.sleep(60)
             await self._publish_status("online" if self._status.connected else "offline")
+
+    async def _context_keepalive_loop(self) -> None:
+        """定期检查 context_token 是否有效，提前发现过期问题。
+
+        默认每 4 小时探测一次。发现 token 过期时立即发邮件通知，
+        而不是等到有消息发不出去才发现。
+        """
+        interval = int(os.getenv("WECHAT_KEEPALIVE_INTERVAL_SEC", "14400"))
+        await asyncio.sleep(60)  # 启动后等 1 分钟再开始检查
+
+        while self._running:
+            try:
+                if self._status.connected and self.bot.get_user_id():
+                    healthy = await self.bot.check_context_health()
+                    if not healthy and self.bot._get_context_token(self.bot.get_user_id()) is None:
+                        logger.warning("🔴 context_token 已过期，发送邮件通知")
+                        await self._backup_notifier.notify(
+                            "⚠️ 微信会话已过期，需要手动激活",
+                            f"""微信机器人的 context_token 已过期，暂时无法主动推送消息。
+
+时间: {datetime.now():%Y-%m-%d %H:%M:%S}
+服务器: {os.getenv('SERVER_NAME', 'unknown')}
+
+请在微信中给机器人发送任意一条消息以恢复推送能力。
+消息发送失败的记录会自动排队，恢复后重新发送。""",
+                        )
+                    else:
+                        logger.debug(f"Context token keepalive: {'healthy' if healthy else 'no token yet'}")
+            except Exception as e:
+                logger.warning(f"Keepalive check failed: {e}")
+
+            await asyncio.sleep(interval)
 
     async def _process_pending_messages(self) -> None:
         """处理待发送消息队列
