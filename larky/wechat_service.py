@@ -376,6 +376,7 @@ uv run python -m larky.wechat_service
             source = payload.get("source", "unknown")
             priority = payload.get("priority", "normal")
             timestamp = payload.get("timestamp", datetime.now().isoformat())
+            retry_count = int(payload.get("_retry", 0))
 
             if not text:
                 logger.warning("收到空消息，忽略")
@@ -399,6 +400,32 @@ uv run python -m larky.wechat_service
 
         except json.JSONDecodeError as e:
             logger.error(f"JSON 解析失败: {e}")
+        except WeChatError as e:
+            self._status.message_failed += 1
+            err_msg = str(e)
+
+            if "prepare failed" in err_msg and retry_count < 3:
+                payload["_retry"] = retry_count + 1
+                retry_data = json.dumps(payload, ensure_ascii=False).encode()
+                await self.redis.rpush(QUEUE_PENDING, retry_data)
+                logger.warning(
+                    f"🔄 context_token 过期，消息已回队列待重试 "
+                    f"({retry_count + 1}/3): {text[:30]}..."
+                )
+            elif "prepare failed" in err_msg:
+                logger.error(
+                    f"❌ 消息发送失败（已达最大重试次数），"
+                    f"请在微信中给机器人发一条消息以刷新会话: {text[:30]}..."
+                )
+                await self._backup_notifier.send_message_backup(
+                    text=text, source=source, timestamp=timestamp
+                )
+            else:
+                logger.error(f"发送消息失败: {e}")
+                payload_bytes = data if isinstance(data, bytes) else data.encode()
+                await self.redis.rpush(QUEUE_PENDING, payload_bytes)
+                logger.info("📦 消息已加入待发队列")
+
         except Exception as e:
             self._status.message_failed += 1
             logger.error(f"发送消息失败: {e}")
@@ -435,18 +462,23 @@ uv run python -m larky.wechat_service
                     if not data:
                         break
 
-                    payload = json.loads(data)
-                    text = payload.get("text", "")
-                    source = payload.get("source", "unknown")
-                    priority = payload.get("priority", "normal")
-                    timestamp = payload.get("timestamp", "")
+                    try:
+                        payload = json.loads(data)
+                        text = payload.get("text", "")
+                        source = payload.get("source", "unknown")
+                        priority = payload.get("priority", "normal")
+                        timestamp = payload.get("timestamp", "")
 
-                    await self.bot.notify(text)
-                    self._status.message_sent += 1
-                    logger.info(
-                        f"📨 重发待发消息 (来源: {source}, 优先级: {priority}): {text[:50]}..."
-                    )
-                    await asyncio.sleep(1)
+                        await self.bot.notify(text)
+                        self._status.message_sent += 1
+                        logger.info(
+                            f"📨 重发待发消息 (来源: {source}, 优先级: {priority}): {text[:50]}..."
+                        )
+                        await asyncio.sleep(1)
+                    except Exception as e:
+                        logger.error(f"待发消息发送失败，放回队列: {e}")
+                        await self.redis.rpush(QUEUE_PENDING, data)
+                        break
 
             except Exception as e:
                 logger.error(f"处理待发消息失败: {e}")

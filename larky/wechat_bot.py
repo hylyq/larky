@@ -367,6 +367,15 @@ class WeChatBot:
         self._save_context_tokens(self._account.account_id)
         logger.debug(f"Set context token for {user_id}")
 
+    def _clear_context_token(self, user_id: str) -> None:
+        if not self._account:
+            return
+        key = f"{self._account.account_id}:{user_id}"
+        if key in self._context_tokens:
+            del self._context_tokens[key]
+            self._save_context_tokens(self._account.account_id)
+            logger.info(f"Cleared stale context token for {user_id}")
+
     async def _api_request(
         self,
         endpoint: str,
@@ -632,7 +641,23 @@ class WeChatBot:
             }
         }
 
-        await self._api_request("ilink/bot/sendmessage", payload)
+        data = await self._api_request("ilink/bot/sendmessage", payload)
+        ret = data.get("ret", 0)
+        errmsg = data.get("errmsg", "")
+
+        if ret == -2 and "prepare failed" in errmsg.lower() and not context_token:
+            stored = self._get_context_token(user_id)
+            if stored:
+                logger.warning("Context token expired, clearing and retrying without it")
+                self._clear_context_token(user_id)
+                payload["msg"]["context_token"] = None
+                data = await self._api_request("ilink/bot/sendmessage", payload)
+                ret = data.get("ret", 0)
+                errmsg = data.get("errmsg", "")
+
+        if ret != 0:
+            raise WeChatError(f"sendmessage failed: ret={ret}, errmsg={errmsg}")
+
         return {"message_id": client_id}
 
     async def notify(self, text: str) -> dict[str, Any]:
