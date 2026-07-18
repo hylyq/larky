@@ -785,6 +785,8 @@ CHANNEL_VERSION = "2.4.6"  # 设置为 npm 包的最新版本号
 - **事件驱动的队列处理**：`_process_pending_messages` 收到新消息（新的 context_token）时立即唤醒处理，不再死等 30 秒
 - **更频繁的保活检查**：`WECHAT_KEEPALIVE_INTERVAL_SEC` 默认值从 4 小时缩短至 30 分钟
 - **队列排空韧性**：`_drain_queue()` 处理队列中所有消息，单条失败不阻塞其他消息；通过初始计数跟踪防止无限循环
+- **省略空 context_token**：`send_text` 在 token 为空时完全省略 JSON 中的 `context_token` 字段（匹配官方插件 JS `undefined` 的行为），不再将 Python `None` 序列化为 JSON `null`（服务器可能拒绝 null 值）
+- **失败队列仅在收到新消息时处理**：`QUEUE_FAILED` 仅在 `context_token_updated` 触发（用户发消息）时才排空，而非每 30 秒一次——避免 token 过期时无效重试刷屏日志
 
 ### 2026-07-18 - 协议同步至 @tencent-weixin/openclaw-weixin v2.4.6
 

@@ -787,6 +787,8 @@ Then deploy and verify with `LOG_LEVEL=DEBUG` to confirm API responses show `ret
 - **Event-driven queue processing**: `_process_pending_messages` now wakes immediately on new inbound messages (fresh context_token) instead of waiting 30s
 - **More frequent keepalive**: Default `WECHAT_KEEPALIVE_INTERVAL_SEC` reduced from 4h to 30min
 - **Queue drain resilience**: `_drain_queue()` processes all queued messages without blocking on single failures; prevents infinite loops with initial-count tracking
+- **Omit empty context_token**: `send_text` now omits the `context_token` JSON field entirely when empty (matching official plugin's `undefined`-is-absent behaviour), instead of serializing Python `None` as JSON `null` which the server may reject
+- **Failed queue only on new token**: `QUEUE_FAILED` is only drained when `context_token_updated` fires (user sends a message), not every 30s — avoids log spam from retrying token-expired messages that cannot succeed
 
 ### 2026-07-18 — Protocol Sync with @tencent-weixin/openclaw-weixin v2.4.6
 
