@@ -2,8 +2,9 @@ import os
 from dataclasses import dataclass
 
 
-CHANNEL_VERSION = "2.4.3"
+CHANNEL_VERSION = "2.4.6"
 ILINK_APP_ID = "bot"
+BOT_AGENT = os.getenv("WECHAT_BOT_AGENT", "Larky/0.1")
 
 
 def _build_client_version(version: str) -> int:
@@ -12,6 +13,14 @@ def _build_client_version(version: str) -> int:
     minor = int(parts[1]) if len(parts) > 1 else 0
     patch = int(parts[2]) if len(parts) > 2 else 0
     return ((major & 0xff) << 16) | ((minor & 0xff) << 8) | (patch & 0xff)
+
+
+def build_base_info() -> dict[str, str]:
+    """Build the base_info payload included in every API request (matches official plugin)."""
+    return {
+        "channel_version": CHANNEL_VERSION,
+        "bot_agent": BOT_AGENT,
+    }
 
 
 ILINK_APP_CLIENT_VERSION = _build_client_version(CHANNEL_VERSION)

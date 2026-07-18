@@ -21,6 +21,7 @@ from .wechat_config import (
     ILINK_APP_CLIENT_VERSION,
     SESSION_EXPIRED_ERRCODE,
     SESSION_PAUSE_DURATION_MS,
+    build_base_info,
 )
 from .wechat_models import (
     MessageItemType,
@@ -184,6 +185,7 @@ class WeChatBot:
 
     async def close(self) -> None:
         self._running = False
+        await self.notify_stop()
         if self._session and not self._session.closed:
             await self._session.close()
 
@@ -561,7 +563,7 @@ class WeChatBot:
 
         payload = {
             "get_updates_buf": self._get_updates_buf,
-            "base_info": {"channel_version": CHANNEL_VERSION},
+            "base_info": build_base_info(),
         }
 
         try:
@@ -638,7 +640,8 @@ class WeChatBot:
                 "message_state": MessageState.FINISH.value,
                 "item_list": [{"type": MessageItemType.TEXT.value, "text_item": {"text": text}}],
                 "context_token": ctx_token,
-            }
+            },
+            "base_info": build_base_info(),
         }
 
         data = await self._api_request("ilink/bot/sendmessage", payload)
@@ -686,7 +689,11 @@ class WeChatBot:
         try:
             data = await self._api_request(
                 "ilink/bot/getconfig",
-                {"ilink_user_id": user_id, "context_token": ctx_token},
+                {
+                    "ilink_user_id": user_id,
+                    "context_token": ctx_token,
+                    "base_info": build_base_info(),
+                },
                 timeout_ms=10000,
             )
             ret = data.get("ret", 0)
@@ -701,6 +708,44 @@ class WeChatBot:
             logger.warning(f"Context token health check error: {e}")
             return False
 
+    async def notify_start(self) -> None:
+        """Notify the WeChat server that this bot client is starting (official protocol).
+
+        Matches the official plugin's `notifyStart` call in `gateway.startAccount`.
+        """
+        if not self._account:
+            return
+        try:
+            data = await self._api_request(
+                "ilink/bot/msg/notifystart",
+                {"base_info": build_base_info()},
+                timeout_ms=10000,
+            )
+            ret = data.get("ret", 0)
+            if ret != 0:
+                logger.warning(f"notifyStart: ret={ret} errmsg={data.get('errmsg', '')}")
+        except Exception as e:
+            logger.warning(f"notifyStart failed (ignored): {e}")
+
+    async def notify_stop(self) -> None:
+        """Notify the WeChat server that this bot client is stopping (official protocol).
+
+        Matches the official plugin's `notifyStop` call in `gateway.stopAccount`.
+        """
+        if not self._account:
+            return
+        try:
+            data = await self._api_request(
+                "ilink/bot/msg/notifystop",
+                {"base_info": build_base_info()},
+                timeout_ms=10000,
+            )
+            ret = data.get("ret", 0)
+            if ret != 0:
+                logger.warning(f"notifyStop: ret={ret} errmsg={data.get('errmsg', '')}")
+        except Exception as e:
+            logger.warning(f"notifyStop failed (ignored): {e}")
+
     async def send_typing(self, to_user_id: str, typing: bool = True) -> None:
         if not self._account:
             raise WeChatError("Not logged in")
@@ -711,7 +756,11 @@ class WeChatBot:
         ctx_token = self._get_context_token(to_user_id)
         config_data = await self._api_request(
             "ilink/bot/getconfig",
-            {"ilink_user_id": to_user_id, "context_token": ctx_token},
+            {
+                "ilink_user_id": to_user_id,
+                "context_token": ctx_token,
+                "base_info": build_base_info(),
+            },
         )
         typing_ticket = config_data.get("typing_ticket", "")
         if not typing_ticket:
@@ -723,6 +772,7 @@ class WeChatBot:
                 "ilink_user_id": to_user_id,
                 "typing_ticket": typing_ticket,
                 "status": 1 if typing else 2,
+                "base_info": build_base_info(),
             },
         )
 
@@ -772,6 +822,8 @@ class WeChatBot:
 
         if not self._account:
             raise WeChatError("Failed to login")
+
+        await self.notify_start()
 
         logger.info(f"Starting message polling for account: {self._account.account_id}")
         self._running = True
