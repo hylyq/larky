@@ -60,6 +60,7 @@ CHANNEL_INCOMING = "wechat:incoming"
 CHANNEL_OUTGOING = "wechat:outgoing"
 CHANNEL_STATUS = "wechat:status"
 QUEUE_PENDING = "wechat:pending_messages"
+QUEUE_FAILED = "wechat:failed_messages"
 
 
 @dataclass
@@ -375,6 +376,12 @@ uv run python -m larky.wechat_service
         优先级处理逻辑：
         - normal（默认）: 离线时消息丢弃
         - high: 离线时消息加入队列 + 并行发送邮件备份，微信恢复后重发
+
+        "prepare failed" 错误处理：
+        - context_token 过期时 send_text 内部会清除 token 并重试一次
+        - 如果内部重试也失败，说明需要用户发消息来刷新 token
+        - 此时将消息移入 failed 队列（而非 pending 队列的快速重试循环）
+        - failed 队列的消息只在收到新消息（获得新 token）后才处理
         """
         try:
             payload = json.loads(data)
@@ -382,7 +389,6 @@ uv run python -m larky.wechat_service
             source = payload.get("source", "unknown")
             priority = payload.get("priority", "normal")
             timestamp = payload.get("timestamp", datetime.now().isoformat())
-            retry_count = int(payload.get("_retry", 0))
 
             if not text:
                 logger.warning("收到空消息，忽略")
@@ -407,26 +413,21 @@ uv run python -m larky.wechat_service
         except json.JSONDecodeError as e:
             logger.error(f"JSON 解析失败: {e}")
         except WeChatError as e:
-            self._status.message_failed += 1
             err_msg = str(e)
 
-            if "prepare failed" in err_msg and retry_count < 3:
-                payload["_retry"] = retry_count + 1
-                retry_data = json.dumps(payload, ensure_ascii=False).encode()
-                await self.redis.rpush(QUEUE_PENDING, retry_data)
+            if "prepare failed" in err_msg:
+                # send_text already retried once without context_token internally.
+                # This error means the token is truly expired and needs user interaction
+                # to refresh — fast retries won't help. Move to failed queue.
                 logger.warning(
-                    f"🔄 context_token 过期，消息已回队列待重试 "
-                    f"({retry_count + 1}/3): {text[:30]}..."
+                    f"🔴 context_token 已过期，消息移入失败队列等待用户激活: {text[:30]}..."
                 )
-            elif "prepare failed" in err_msg:
-                logger.error(
-                    f"❌ 消息发送失败（已达最大重试次数），"
-                    f"请在微信中给机器人发一条消息以刷新会话: {text[:30]}..."
-                )
+                await self.redis.rpush(QUEUE_FAILED, data)
                 await self._backup_notifier.send_message_backup(
                     text=text, source=source, timestamp=timestamp
                 )
             else:
+                self._status.message_failed += 1
                 logger.error(f"发送消息失败: {e}")
                 payload_bytes = data if isinstance(data, bytes) else data.encode()
                 await self.redis.rpush(QUEUE_PENDING, payload_bytes)
@@ -452,7 +453,7 @@ uv run python -m larky.wechat_service
         默认每 4 小时探测一次。发现 token 过期时立即发邮件通知，
         而不是等到有消息发不出去才发现。
         """
-        interval = int(os.getenv("WECHAT_KEEPALIVE_INTERVAL_SEC", "14400"))
+        interval = int(os.getenv("WECHAT_KEEPALIVE_INTERVAL_SEC", "1800"))
         await asyncio.sleep(60)  # 启动后等 1 分钟再开始检查
 
         while self._running:
@@ -481,7 +482,12 @@ uv run python -m larky.wechat_service
     async def _process_pending_messages(self) -> None:
         """处理待发送消息队列
 
-        只在微信连接正常时才处理待发消息，确保高优先级消息在恢复后自动重发
+        在两种情况下触发处理：
+        1. 定时（每 30 秒）检查 pending 队列
+        2. 收到新消息（context_token 刷新）时立即检查 failed 队列
+
+        失败的消息不会阻塞队列：普通失败跳过该消息并继续处理其他消息；
+        "prepare failed" 消息移入 failed 队列，等待用户发消息刷新 token 后重试。
         """
         await asyncio.sleep(5)
 
@@ -491,37 +497,88 @@ uv run python -m larky.wechat_service
                     await asyncio.sleep(30)
                     continue
 
-                pending_count = await self.redis.llen(QUEUE_PENDING)
-                if pending_count > 0:
-                    logger.info(f"📦 开始处理 {pending_count} 条待发消息...")
+                # 处理 pending 队列（正常排队消息）
+                await self._drain_queue(QUEUE_PENDING, "待发")
 
-                while True:
-                    data = await self.redis.lpop(QUEUE_PENDING)
-                    if not data:
-                        break
-
-                    try:
-                        payload = json.loads(data)
-                        text = payload.get("text", "")
-                        source = payload.get("source", "unknown")
-                        priority = payload.get("priority", "normal")
-                        timestamp = payload.get("timestamp", "")
-
-                        await self.bot.notify(text)
-                        self._status.message_sent += 1
-                        logger.info(
-                            f"📨 重发待发消息 (来源: {source}, 优先级: {priority}): {text[:50]}..."
-                        )
-                        await asyncio.sleep(1)
-                    except Exception as e:
-                        logger.error(f"待发消息发送失败，放回队列: {e}")
-                        await self.redis.rpush(QUEUE_PENDING, data)
-                        break
+                # 处理 failed 队列（因 token 过期失败的消息）
+                await self._drain_queue(QUEUE_FAILED, "失败待重试")
 
             except Exception as e:
                 logger.error(f"处理待发消息失败: {e}")
 
-            await asyncio.sleep(30)
+            # 等待 30 秒或新消息触发
+            try:
+                await asyncio.wait_for(
+                    self.bot.context_token_updated.wait(), timeout=30
+                )
+                self.bot.context_token_updated.clear()
+                logger.debug("收到新消息（context_token 刷新），立即处理待发队列")
+            except asyncio.TimeoutError:
+                pass
+
+    async def _drain_queue(self, queue_key: str, label: str) -> None:
+        """处理指定队列中的所有消息。
+
+        失败不会阻塞队列：发送失败的消息放回队列末尾，继续处理下一条。
+        连续失败超过阈值则停止，避免死循环。
+        只处理调用时队列中的消息数，避免因重入队导致的无限循环。
+        """
+        consecutive_failures = 0
+        max_consecutive_failures = 3
+
+        initial_count = await self.redis.llen(queue_key)
+        if initial_count == 0:
+            return
+
+        logger.info(f"📦 开始处理 {initial_count} 条{label}消息...")
+        processed = 0
+
+        while processed < initial_count:
+            data = await self.redis.lpop(queue_key)
+            if not data:
+                break
+            processed += 1
+
+            try:
+                payload = json.loads(data)
+                text = payload.get("text", "")
+                source = payload.get("source", "unknown")
+                priority = payload.get("priority", "normal")
+
+                await self.bot.notify(text)
+                self._status.message_sent += 1
+                logger.info(
+                    f"📨 重发{label}消息 (来源: {source}, 优先级: {priority}): {text[:50]}..."
+                )
+                consecutive_failures = 0
+                await asyncio.sleep(1)
+            except WeChatError as e:
+                err_msg = str(e)
+                if "prepare failed" in err_msg:
+                    # Token still expired — move to failed queue, don't block
+                    logger.warning(
+                        f"🔴 token 仍过期，{label}消息移入失败队列: {text[:50]}..."
+                    )
+                    await self.redis.rpush(QUEUE_FAILED, data)
+                    consecutive_failures = 0  # Not a real failure
+                else:
+                    consecutive_failures += 1
+                    logger.error(f"{label}消息发送失败 ({consecutive_failures}): {e}")
+                    await self.redis.rpush(queue_key, data)
+                    if consecutive_failures >= max_consecutive_failures:
+                        logger.error(
+                            f"❌ {label}队列连续 {max_consecutive_failures} 次失败，暂停处理"
+                        )
+                        break
+            except Exception as e:
+                consecutive_failures += 1
+                logger.error(f"{label}消息发送失败 ({consecutive_failures}): {e}")
+                await self.redis.rpush(queue_key, data)
+                if consecutive_failures >= max_consecutive_failures:
+                    logger.error(
+                        f"❌ {label}队列连续 {max_consecutive_failures} 次失败，暂停处理"
+                    )
+                    break
 
     async def _publish_status(self, status: str) -> None:
         """发布服务状态"""

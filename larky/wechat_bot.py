@@ -166,6 +166,7 @@ class WeChatBot:
         self._qr_session_key: str = ""
         self._session_guard = SessionGuard()
         self._long_poll_timeout_ms: int = self.config.long_poll_timeout_ms
+        self.context_token_updated = asyncio.Event()
 
     @classmethod
     def from_env(cls) -> "WeChatBot":
@@ -711,6 +712,42 @@ class WeChatBot:
             logger.warning(f"Context token health check error: {e}")
             return False
 
+    async def activate_context_token(self, user_id: str, context_token: str) -> bool:
+        """Activate a fresh context_token by calling getConfig API.
+
+        Mirrors the official plugin's configManager.getForUser() call in
+        monitor.ts:170-171 which registers/activates the token with the
+        WeChat server. This helps extend the token's lifetime so proactive
+        messages can be sent without requiring the user to message first.
+
+        Returns True if activation succeeded, False otherwise (non-fatal).
+        """
+        if not self._account or not user_id or not context_token:
+            return False
+        try:
+            data = await self._api_request(
+                "ilink/bot/getconfig",
+                {
+                    "ilink_user_id": user_id,
+                    "context_token": context_token,
+                    "base_info": build_base_info(),
+                },
+                timeout_ms=10000,
+            )
+            ret = data.get("ret", 0)
+            if ret == 0:
+                logger.debug(f"Context token activated for user={user_id}")
+                return True
+            else:
+                logger.debug(
+                    f"Context token activation for {user_id}: ret={ret} "
+                    f"errmsg={data.get('errmsg', '')}"
+                )
+                return False
+        except Exception as e:
+            logger.debug(f"Context token activation error (non-fatal): {e}")
+            return False
+
     async def notify_start(self) -> None:
         """Notify the WeChat server that this bot client is starting (official protocol).
 
@@ -840,6 +877,12 @@ class WeChatBot:
             try:
                 messages = await self.get_updates()
                 for msg in messages:
+                    if msg.context_token and msg.from_user_id:
+                        self.context_token_updated.set()
+                        self.context_token_updated.clear()
+                        asyncio.create_task(
+                            self.activate_context_token(msg.from_user_id, msg.context_token)
+                        )
                     await self._dispatch_message(msg)
             except Exception as e:
                 logger.error(f"Error in message loop: {e}")

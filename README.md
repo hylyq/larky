@@ -779,6 +779,15 @@ Then deploy and verify with `LOG_LEVEL=DEBUG` to confirm API responses show `ret
 
 ## Changelog
 
+### 2026-07-18 (evening) — Context Token Keepalive & Queue Resilience
+
+- **Context token activation**: Mirror official plugin behavior — call `getConfig` API with fresh `context_token` on every inbound message to register/activate the token with the WeChat server, extending its lifetime (was: token only stored, never activated)
+- **Failed message queue**: Added `wechat:failed_messages` queue for messages that fail due to expired context_token, preventing them from blocking the main pending queue
+- **Smarter retry**: Removed pointless 3-retry loop for `prepare failed` errors — expired tokens don't fix themselves; messages now move directly to failed queue with email backup
+- **Event-driven queue processing**: `_process_pending_messages` now wakes immediately on new inbound messages (fresh context_token) instead of waiting 30s
+- **More frequent keepalive**: Default `WECHAT_KEEPALIVE_INTERVAL_SEC` reduced from 4h to 30min
+- **Queue drain resilience**: `_drain_queue()` processes all queued messages without blocking on single failures; prevents infinite loops with initial-count tracking
+
 ### 2026-07-18 — Protocol Sync with @tencent-weixin/openclaw-weixin v2.4.6
 
 - **Critical**: Added `base_info` (channel_version + bot_agent) to `sendmessage`, `getconfig`, and `sendtyping` API requests — matches official plugin v2.4.6 payload format. Fixes `ret=-2 prepare failed` when sending messages.

@@ -777,6 +777,15 @@ CHANNEL_VERSION = "2.4.6"  # 设置为 npm 包的最新版本号
 
 ## 更新日志
 
+### 2026-07-18 (晚间) - Context Token 保活与队列韧性优化
+
+- **Context token 激活**：对齐官方插件行为——每次收到消息时用新的 `context_token` 调用 `getConfig` API 向微信服务器注册/激活 token，延长有效时长（之前仅存储 token，从未激活）
+- **失败消息队列**：新增 `wechat:failed_messages` 队列，用于隔离因 context_token 过期而发送失败的消息，防止其阻塞正常待发队列
+- **更智能的重试机制**：移除 `prepare failed` 的无意义 3 次快速重试——过期的 token 不会自行恢复；消息直接移入失败队列并发送邮件备份
+- **事件驱动的队列处理**：`_process_pending_messages` 收到新消息（新的 context_token）时立即唤醒处理，不再死等 30 秒
+- **更频繁的保活检查**：`WECHAT_KEEPALIVE_INTERVAL_SEC` 默认值从 4 小时缩短至 30 分钟
+- **队列排空韧性**：`_drain_queue()` 处理队列中所有消息，单条失败不阻塞其他消息；通过初始计数跟踪防止无限循环
+
 ### 2026-07-18 - 协议同步至 @tencent-weixin/openclaw-weixin v2.4.6
 
 - **关键修复**：给 `sendmessage`、`getconfig`、`sendtyping` API 请求添加 `base_info`（channel_version + bot_agent）——匹配官方插件 v2.4.6 请求格式。修复发送消息时的 `ret=-2 prepare failed` 错误。
