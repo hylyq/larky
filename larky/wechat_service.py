@@ -482,12 +482,12 @@ uv run python -m larky.wechat_service
     async def _process_pending_messages(self) -> None:
         """处理待发送消息队列
 
-        在两种情况下触发处理：
-        1. 定时（每 30 秒）检查 pending 队列
-        2. 收到新消息（context_token 刷新）时立即检查 failed 队列
+        两种处理时机：
+        1. 定时（每 30 秒）：只处理 pending 队列（离线重连后积压的消息）
+        2. 收到新消息（context_token 刷新）：处理 failed 队列（token 过期导致的消息），
+           因为只有新 token 到达才可能发送成功
 
-        失败的消息不会阻塞队列：普通失败跳过该消息并继续处理其他消息；
-        "prepare failed" 消息移入 failed 队列，等待用户发消息刷新 token 后重试。
+        失败不会阻塞队列——单条失败会被跳过，其他消息继续处理。
         """
         await asyncio.sleep(5)
 
@@ -497,22 +497,23 @@ uv run python -m larky.wechat_service
                     await asyncio.sleep(30)
                     continue
 
-                # 处理 pending 队列（正常排队消息）
+                # 每轮只处理 pending 队列（常规积压消息）
                 await self._drain_queue(QUEUE_PENDING, "待发")
-
-                # 处理 failed 队列（因 token 过期失败的消息）
-                await self._drain_queue(QUEUE_FAILED, "失败待重试")
 
             except Exception as e:
                 logger.error(f"处理待发消息失败: {e}")
 
-            # 等待 30 秒或新消息触发
+            # 等待 30 秒或收到新消息（context_token 刷新）
+            # 收到新消息时额外处理 failed 队列
             try:
                 await asyncio.wait_for(
                     self.bot.context_token_updated.wait(), timeout=30
                 )
                 self.bot.context_token_updated.clear()
-                logger.debug("收到新消息（context_token 刷新），立即处理待发队列")
+                logger.debug("收到新消息（context_token 刷新），处理所有待发队列")
+                if self._status.connected:
+                    await self._drain_queue(QUEUE_PENDING, "待发")
+                    await self._drain_queue(QUEUE_FAILED, "失败待重试")
             except asyncio.TimeoutError:
                 pass
 

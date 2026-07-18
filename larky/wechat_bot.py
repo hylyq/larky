@@ -635,16 +635,21 @@ class WeChatBot:
         ctx_token = context_token or self._get_context_token(user_id)
 
         client_id = f"openclaw-weixin-{uuid.uuid4().hex[:16]}"
+        msg_payload = {
+            "from_user_id": "",
+            "to_user_id": user_id,
+            "client_id": client_id,
+            "message_type": MessageType.BOT.value,
+            "message_state": MessageState.FINISH.value,
+            "item_list": [{"type": MessageItemType.TEXT.value, "text_item": {"text": text}}],
+        }
+        # Omit context_token when None/empty — matches official plugin which
+        # serializes `undefined` as absent (JS), not `null` (Python None).
+        if ctx_token:
+            msg_payload["context_token"] = ctx_token
+
         payload = {
-            "msg": {
-                "from_user_id": "",
-                "to_user_id": user_id,
-                "client_id": client_id,
-                "message_type": MessageType.BOT.value,
-                "message_state": MessageState.FINISH.value,
-                "item_list": [{"type": MessageItemType.TEXT.value, "text_item": {"text": text}}],
-                "context_token": ctx_token,
-            },
+            "msg": msg_payload,
             "base_info": build_base_info(),
         }
 
@@ -657,7 +662,7 @@ class WeChatBot:
             if stored:
                 logger.warning("Context token expired, clearing and retrying without it")
                 self._clear_context_token(user_id)
-                payload["msg"]["context_token"] = None
+                payload["msg"].pop("context_token", None)
                 data = await self._api_request("ilink/bot/sendmessage", payload)
                 ret = data.get("ret", 0)
                 errmsg = data.get("errmsg", "")
