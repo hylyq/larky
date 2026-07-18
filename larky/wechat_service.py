@@ -63,6 +63,101 @@ QUEUE_PENDING = "wechat:pending_messages"
 QUEUE_FAILED = "wechat:failed_messages"
 
 
+def _build_incoming_payload(msg: "WeChatMessage") -> dict[str, Any]:
+    """Build a complete serializable payload from an incoming WeChatMessage.
+
+    Includes text, media metadata, and CDN credentials so downstream
+    consumers (WeChatClient subscribers) can work with rich messages.
+    Backward-compatible: existing consumers that only read ``text`` work unchanged.
+    """
+
+    def _item_dict(item: "MessageItem") -> dict[str, Any]:
+        """Serialize a single MessageItem to a dict."""
+        d: dict[str, Any] = {
+            "type": item.type.value,
+            "type_name": item.type.name,
+            "msg_id": item.msg_id,
+            "create_time_ms": item.create_time_ms,
+        }
+        if item.text_item:
+            d["text"] = item.text_item.text
+        if item.image_item:
+            img = item.image_item
+            d["image"] = {"url": img.url, "aeskey": img.aeskey}
+            if img.media:
+                d["image"]["media"] = {
+                    "encrypt_query_param": img.media.encrypt_query_param,
+                    "aes_key": img.media.aes_key,
+                    "encrypt_type": img.media.encrypt_type,
+                }
+            if img.thumb_media:
+                d["image"]["thumb_media"] = {
+                    "encrypt_query_param": img.thumb_media.encrypt_query_param,
+                    "aes_key": img.thumb_media.aes_key,
+                    "encrypt_type": img.thumb_media.encrypt_type,
+                }
+        if item.voice_item:
+            v = item.voice_item
+            d["voice"] = {
+                "text": v.text,
+                "encode_type": v.encode_type,
+                "sample_rate": v.sample_rate,
+                "playtime": v.playtime,
+            }
+            if v.media:
+                d["voice"]["media"] = {
+                    "encrypt_query_param": v.media.encrypt_query_param,
+                    "aes_key": v.media.aes_key,
+                    "encrypt_type": v.media.encrypt_type,
+                }
+        if item.file_item:
+            f = item.file_item
+            d["file"] = {"file_name": f.file_name, "md5": f.md5, "len": f.len}
+            if f.media:
+                d["file"]["media"] = {
+                    "encrypt_query_param": f.media.encrypt_query_param,
+                    "aes_key": f.media.aes_key,
+                    "encrypt_type": f.media.encrypt_type,
+                }
+        if item.video_item:
+            vid = item.video_item
+            d["video"] = {
+                "video_size": vid.video_size,
+                "play_length": vid.play_length,
+                "video_md5": vid.video_md5,
+            }
+            if vid.media:
+                d["video"]["media"] = {
+                    "encrypt_query_param": vid.media.encrypt_query_param,
+                    "aes_key": vid.media.aes_key,
+                    "encrypt_type": vid.media.encrypt_type,
+                }
+            if vid.thumb_media:
+                d["video"]["thumb_media"] = {
+                    "encrypt_query_param": vid.thumb_media.encrypt_query_param,
+                    "aes_key": vid.thumb_media.aes_key,
+                    "encrypt_type": vid.thumb_media.encrypt_type,
+                }
+        return d
+
+    media_type = msg.get_media_type()
+    return {
+        # ── backward-compatible fields ──
+        "from_user_id": msg.from_user_id,
+        "text": msg.get_text(),
+        "message_id": msg.message_id,
+        "timestamp": msg.create_time_ms,
+        # ── new fields ──
+        "session_id": msg.session_id,
+        "message_type": msg.message_type.name,
+        "message_state": msg.message_state.name,
+        "context_token": msg.context_token or None,
+        "has_media": msg.has_media(),
+        "media_type": media_type.name if media_type else None,
+        "items": [_item_dict(item) for item in msg.item_list],
+    }
+
+
 @dataclass
 class ServiceStatus:
     """服务状态"""
@@ -240,8 +335,16 @@ class WeChatService:
         async def on_message(msg: WeChatMessage):
             await self._handle_incoming_message(msg)
 
+        async def _show_typing(msg: WeChatMessage) -> None:
+            """Best-effort typing indicator — silently ignored if unavailable."""
+            try:
+                await self.bot.send_typing(msg.from_user_id, typing=True)
+            except Exception:
+                pass  # typing indicator is cosmetic; never fail a command for it
+
         @self.bot.on_command("help")
         async def cmd_help(msg: WeChatMessage, args: list):
+            await _show_typing(msg)
             await self.bot.reply_text(
                 msg,
                 """🤖 微信消息服务命令：
@@ -255,6 +358,7 @@ class WeChatService:
 
         @self.bot.on_command("status")
         async def cmd_status(msg: WeChatMessage, args: list):
+            await _show_typing(msg)
             status_text = f"""📊 服务状态：
 
 微信连接: {'✅ 在线' if self._status.connected else '❌ 离线'}
@@ -268,6 +372,7 @@ class WeChatService:
 
         @self.bot.on_command("ping")
         async def cmd_ping(msg: WeChatMessage, args: list):
+            await _show_typing(msg)
             await self.bot.reply_text(msg, "🏓 Pong!")
 
     async def _run_once(self) -> None:
@@ -333,18 +438,17 @@ uv run python -m larky.wechat_service
             logger.info(f"📦 有 {pending_count} 条消息等待重发")
 
     async def _handle_incoming_message(self, msg: WeChatMessage) -> None:
-        """处理收到的微信消息，发布到 Redis"""
+        """处理收到的微信消息，发布到 Redis
+
+        发布完整的消息元数据（文本、媒体信息、CDN 凭证等），
+        下游 WeChatClient 订阅者可以获取富媒体消息的全部上下文。
+        """
         if msg.is_command():
             cmd = msg.get_command()
             if cmd and cmd[0] in ("help", "status", "ping"):
                 return
 
-        data = {
-            "from_user_id": msg.from_user_id,
-            "text": msg.get_text(),
-            "message_id": msg.message_id,
-            "timestamp": msg.create_time_ms,
-        }
+        data = _build_incoming_payload(msg)
 
         try:
             await self.redis.publish(CHANNEL_INCOMING, json.dumps(data, ensure_ascii=False))

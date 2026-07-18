@@ -747,13 +747,19 @@ tar xzf tencent-weixin-openclaw-weixin-*.tgz
 | `base_info` | 每个 API 请求都必须包含 `{"base_info": {"channel_version": "...", "bot_agent": "..."}}` —— 不仅是 `getupdates` | 2026-07: `sendmessage` 缺少 `base_info` → `ret=-2 prepare failed` |
 | `CHANNEL_VERSION` | 必须与 npm 包最新版本号一致 | 在 `wechat_config.py` 中配置，取值自 npm 包的 `package.json` 中的 `version` 字段 |
 | 新增端点 | 官方插件可能在启动/关闭时调用新的生命周期端点 | 官方新增了 `notifyStart` / `notifyStop` |
-| 新增消息类型 | 检查 `MessageItemType` 和 `MessageType` 枚举 | 官方 v2.4.6 新增 `TOOL_CALL_START=11`, `TOOL_CALL_RESULT=12` |
+| 新增消息类型 | 检查 `MessageItemType` 和 `MessageType` 枚举 | 官方 v2.4.6 新增 `TOOL_CALL_START=11`, `TOOL_CALL_RESULT=12`（✅ 已于 2026-07-19 添加） |
 | HTTP Headers | 验证 `iLink-App-Id`、`iLink-App-ClientVersion`、`SKRouteTag` | 对比官方 `api.ts` 中的 `buildCommonHeaders()` |
 | 错误处理 | `sendmessage` 应在 `ret != 0` 时抛异常；`getUpdates` 应优雅处理错误 | 官方 `api.ts:515` 检查 `resp.ret !== 0` |
 
 **5. 更新 CHANNEL_VERSION 并重测：**
 
-修复协议问题后，更新 `wechat_config.py`：
+修复协议问题后，更新 channel version。可以通过环境变量（无需改代码）：
+
+```bash
+export WECHAT_CHANNEL_VERSION="2.5.0"
+```
+
+或直接编辑 `wechat_config.py`：
 
 ```python
 CHANNEL_VERSION = "2.4.6"  # 设置为 npm 包的最新版本号
@@ -776,6 +782,38 @@ CHANNEL_VERSION = "2.4.6"  # 设置为 npm 包的最新版本号
 **修复**：给所有 API 请求体添加 `base_info`，新增 `notifyStart`/`notifyStop` 生命周期调用，将 `CHANNEL_VERSION` 升级到 `2.4.6`。同时在 `_api_request` 中增加响应体日志，方便未来快速发现业务错误码。
 
 ## 更新日志
+
+### 2026-07-19 — 协议缺口补齐、韧性优化与测试覆盖
+
+**CDN 媒体支持：**
+
+- **CDNMedia 解析**：`WeChatMessage.from_dict()` 现在会解析嵌套的 `media` 和 `thumb_media` 对象（含 `encrypt_query_param`、`aes_key`、`encrypt_type`），覆盖 IMAGE、VOICE、FILE、VIDEO 四种消息类型。此前 CDN 元数据在解析时被静默丢弃。空 CDN 字典会被规范化为 `None`。
+- **入站消息完整元数据**：`_handle_incoming_message()` 通过新增的 `_build_incoming_payload()` 向 Redis 发布完整消息元数据——包括媒体类型、CDN 凭证、文件名、图片 URL、会话 ID、context_token 等。下游 `WeChatClient` 订阅者现在可获取富媒体消息的全部上下文。完全向后兼容——只读 `text` 字段的旧消费者不受影响。
+
+**协议同步：**
+
+- **TOOL_CALL_START / TOOL_CALL_RESULT**：`MessageItemType` 新增枚举值 11 和 12（官方插件 v2.4.6）。此前收到这两类消息会抛出 `ValueError`。
+- **`send_typing()` 空 token 修复**：`send_typing()` 现在在 token 为空时省略 `context_token` 字段——与上一版本对 `send_text()` 的修复保持一致。防止 Python `None` 被序列化为 JSON `null`。
+- **`_api_get()` 业务错误检查**：QR 登录流程的 GET 请求现在会检查 JSON 响应中的 `ret`/`errcode` 并记录业务错误（此前仅检查 HTTP 状态码）。与 `_api_request()` 行为一致。
+
+**韧性优化：**
+
+- **优雅关闭**：`close()` 现在等待最多 5 秒让进行中的 API 请求完成（`_in_flight` 计数器），再关闭 aiohttp session。防止 `send_text` 或 `notify_stop` 被中途中断。
+- **指数退避**：getUpdates 错误循环改用指数退避（`1s → 2s → 4s → ... → 60s` 上限），替代固定的 5 秒等待。每次成功轮询后重置为 1s。
+- **Token 激活重试**：`activate_context_token()` 新增 `_activate_context_token_with_retry()` 包装，失败时最多重试 2 次（1s / 2s 延迟）。此前单次网络波动就会静默丢弃激活，可能导致 token 提前过期。
+
+**用户体验：**
+
+- **输入状态提示**：内建命令（`/help`、`/status`、`/ping`）在回复前通过 `send_typing()` 在微信客户端显示"正在输入..."。best-effort——token 不可用时静默忽略。
+
+**配置：**
+
+- **`CHANNEL_VERSION` 环境变量覆盖**：设置 `WECHAT_CHANNEL_VERSION=3.0.0` 即可在不修改代码的情况下覆盖硬编码的 channel version，方便快速协议升级。
+
+**测试（32 个测试，此前仅 4 个）：**
+
+- **28 个核心路径单元测试**（`tests/test_wechat_core.py`）：覆盖 token 过期自动恢复、context_token 提取与持久化、5 个 API 请求中的 `base_info` 完整性、6 种媒体类型的 CDNMedia 解析、TOOL_CALL 枚举兼容性、`send_typing` 空 token 序列化、Redis 发布消息元数据完整性、指数退避模式验证、`CHANNEL_VERSION` 环境变量覆盖。
+- **修复已有测试**：为 `test_wechat_priority.py` 中的 4 个异步测试补上缺失的 `@pytest.mark.asyncio` 装饰器（此前未被 pytest 收集执行）。
 
 ### 2026-07-18 (晚间) - Context Token 保活与队列韧性优化
 

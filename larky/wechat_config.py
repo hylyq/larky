@@ -2,7 +2,7 @@ import os
 from dataclasses import dataclass
 
 
-CHANNEL_VERSION = "2.4.6"
+CHANNEL_VERSION = os.getenv("WECHAT_CHANNEL_VERSION", "2.4.6")
 ILINK_APP_ID = "bot"
 BOT_AGENT = os.getenv("WECHAT_BOT_AGENT", "Larky/0.1")
 

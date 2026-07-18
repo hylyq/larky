@@ -10,6 +10,9 @@ class MessageItemType(Enum):
     VOICE = 3
     FILE = 4
     VIDEO = 5
+    # Added in official plugin v2.4.6
+    TOOL_CALL_START = 11
+    TOOL_CALL_RESULT = 12
 
 
 class MessageType(Enum):
@@ -97,6 +100,22 @@ class WeChatMessage:
     context_token: str = ""
     raw_data: dict[str, Any] = field(default_factory=dict)
 
+    @staticmethod
+    def _parse_cdn_media(data: dict[str, Any] | None) -> CDNMedia | None:
+        """Parse a CDNMedia from a nested dict, returning None if empty/missing."""
+        if not data:
+            return None
+        media = CDNMedia(
+            encrypt_query_param=data.get("encrypt_query_param", ""),
+            aes_key=data.get("aes_key", ""),
+            encrypt_type=data.get("encrypt_type", 0),
+        )
+        # Return None if all fields are empty/zero — the server sends
+        # empty objects rather than omitting the key when no CDN data exists.
+        if not media.encrypt_query_param and not media.aes_key and not media.encrypt_type:
+            return None
+        return media
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "WeChatMessage":
         item_list = []
@@ -111,6 +130,8 @@ class WeChatMessage:
             elif item_type == MessageItemType.IMAGE:
                 img_data = item_data.get("image_item", {})
                 item.image_item = ImageItem(
+                    media=cls._parse_cdn_media(img_data.get("media")),
+                    thumb_media=cls._parse_cdn_media(img_data.get("thumb_media")),
                     aeskey=img_data.get("aeskey", ""),
                     url=img_data.get("url", ""),
                 )
@@ -118,6 +139,7 @@ class WeChatMessage:
             elif item_type == MessageItemType.VOICE:
                 voice_data = item_data.get("voice_item", {})
                 item.voice_item = VoiceItem(
+                    media=cls._parse_cdn_media(voice_data.get("media")),
                     encode_type=voice_data.get("encode_type", 0),
                     sample_rate=voice_data.get("sample_rate", 0),
                     playtime=voice_data.get("playtime", 0),
@@ -127,6 +149,7 @@ class WeChatMessage:
             elif item_type == MessageItemType.FILE:
                 file_data = item_data.get("file_item", {})
                 item.file_item = FileItem(
+                    media=cls._parse_cdn_media(file_data.get("media")),
                     file_name=file_data.get("file_name", ""),
                     md5=file_data.get("md5", ""),
                     len=file_data.get("len", ""),
@@ -135,9 +158,11 @@ class WeChatMessage:
             elif item_type == MessageItemType.VIDEO:
                 video_data = item_data.get("video_item", {})
                 item.video_item = VideoItem(
+                    media=cls._parse_cdn_media(video_data.get("media")),
                     video_size=video_data.get("video_size", 0),
                     play_length=video_data.get("play_length", 0),
                     video_md5=video_data.get("video_md5", ""),
+                    thumb_media=cls._parse_cdn_media(video_data.get("thumb_media")),
                 )
 
             item.create_time_ms = item_data.get("create_time_ms", 0)

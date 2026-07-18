@@ -747,13 +747,19 @@ tar xzf tencent-weixin-openclaw-weixin-*.tgz
 | `base_info` | Every API request must include `{"base_info": {"channel_version": "...", "bot_agent": "..."}}` — not just `getupdates` | 2026-07: `sendmessage` was missing `base_info` → `ret=-2 prepare failed` |
 | `CHANNEL_VERSION` | Must match the latest npm package version | Set in `wechat_config.py`, read from `package.json `version` field in the npm package |
 | New endpoints | Official plugin may call lifecycle endpoints on startup/shutdown | `notifyStart` / `notifyStop` were added to the official plugin |
-| New message types | Check `MessageItemType` and `MessageType` enums | Official v2.4.6 added `TOOL_CALL_START=11`, `TOOL_CALL_RESULT=12` |
+| New message types | Check `MessageItemType` and `MessageType` enums | Official v2.4.6 added `TOOL_CALL_START=11`, `TOOL_CALL_RESULT=12` (✅ added 2026-07-19) |
 | Headers | Verify `iLink-App-Id`, `iLink-App-ClientVersion`, `SKRouteTag` | Compare `buildCommonHeaders()` in official `api.ts` |
 | Error handling | `sendmessage` should throw on `ret != 0`; `getUpdates` handles errors gracefully | Official `api.ts:515` checks `resp.ret !== 0` |
 
 **5. Update CHANNEL_VERSION and retest:**
 
-After fixing protocol issues, update `wechat_config.py`:
+After fixing protocol issues, update the channel version. You can either set the environment variable (no code change):
+
+```bash
+export WECHAT_CHANNEL_VERSION="2.5.0"
+```
+
+Or edit `wechat_config.py` directly:
 
 ```python
 CHANNEL_VERSION = "2.4.6"  # Set to match npm package version
@@ -778,6 +784,38 @@ Then deploy and verify with `LOG_LEVEL=DEBUG` to confirm API responses show `ret
 ---
 
 ## Changelog
+
+### 2026-07-19 — Protocol Gaps, Resilience & Test Coverage
+
+**CDN Media Support:**
+
+- **CDNMedia parsing**: `WeChatMessage.from_dict()` now parses nested `media` and `thumb_media` objects (containing `encrypt_query_param`, `aes_key`, `encrypt_type`) for IMAGE, VOICE, FILE, and VIDEO message types. Previously, CDN metadata was silently dropped during parsing. Empty CDN dicts are normalized to `None` for safety.
+- **Rich incoming message metadata**: `_handle_incoming_message()` now publishes complete message metadata to Redis via `_build_incoming_payload()` — including media type, CDN credentials, file names, image URLs, session IDs, and context tokens. Downstream `WeChatClient` subscribers can now work with rich media messages. Backward-compatible: existing consumers that only read `text` are unaffected.
+
+**Protocol Sync:**
+
+- **TOOL_CALL_START / TOOL_CALL_RESULT**: Added enum values `11` and `12` to `MessageItemType` (official plugin v2.4.6). Previously these message types would throw `ValueError` on parse.
+- **`send_typing()` null token fix**: `send_typing()` now conditionally omits `context_token` from the getconfig payload when empty — same fix already applied to `send_text()` in the prior release. Prevents Python `None` from serializing as JSON `null`.
+- **`_api_get()` business error logging**: QR-login GET requests now check `ret`/`errcode` in JSON responses and log business errors (was: only HTTP status checked). Matches `_api_request()` behaviour.
+
+**Resilience:**
+
+- **Graceful shutdown**: `close()` now waits up to 5 seconds for in-flight API requests to drain (`_in_flight` counter) before closing the aiohttp session. Prevents `send_text` or `notify_stop` from being interrupted mid-request.
+- **Exponential backoff**: getUpdates error loop uses exponential backoff (`1s → 2s → 4s → … → 60s` cap) instead of a fixed 5-second sleep. Backoff resets to 1s on each successful poll.
+- **Token activation retry**: `activate_context_token()` is now wrapped with `_activate_context_token_with_retry()` which retries up to 2 times (1s / 2s delays) on transient failures. Previously a single network hiccup would silently drop the activation, potentially causing the token to expire sooner.
+
+**UX:**
+
+- **Typing indicators**: Built-in service commands (`/help`, `/status`, `/ping`) now show a "typing…" indicator in the WeChat client via `send_typing()` before responding. Best-effort — silently ignored if context_token is unavailable.
+
+**Configuration:**
+
+- **`CHANNEL_VERSION` env override**: Set `WECHAT_CHANNEL_VERSION=3.0.0` to override the hardcoded channel version without code changes. Useful for rapid protocol upgrades.
+
+**Testing (32 tests, up from 4):**
+
+- **28 core path unit tests** (`tests/test_wechat_core.py`): Covering token expiry auto-recovery, context_token extraction & persistence, `base_info` presence in all 5 API payloads, CDNMedia parsing across all 6 media types, TOOL_CALL enum resilience, `send_typing` null-token serialization, Redis payload metadata completeness, exponential backoff pattern verification, and `CHANNEL_VERSION` env override.
+- **Fixed existing tests**: Added missing `@pytest.mark.asyncio` decorators to 4 async tests in `test_wechat_priority.py` (were not being collected by pytest).
 
 ### 2026-07-18 (evening) — Context Token Keepalive & Queue Resilience
 

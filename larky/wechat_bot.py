@@ -167,6 +167,7 @@ class WeChatBot:
         self._session_guard = SessionGuard()
         self._long_poll_timeout_ms: int = self.config.long_poll_timeout_ms
         self.context_token_updated = asyncio.Event()
+        self._in_flight = 0  # count of in-progress _api_request / _api_get calls
 
     @classmethod
     def from_env(cls) -> "WeChatBot":
@@ -184,8 +185,28 @@ class WeChatBot:
             self._session = aiohttp.ClientSession()
 
     async def close(self) -> None:
+        """Shut down the bot gracefully.
+
+        Sets the running flag, sends notifyStop, then waits up to 5 seconds
+        for in-flight API requests to complete before closing the HTTP session.
+        """
         self._running = False
-        await self.notify_stop()
+        try:
+            await self.notify_stop()
+        except Exception:
+            logger.debug("notifyStop failed during shutdown (ignored)")
+
+        # Wait for in-flight requests to drain
+        for _ in range(50):  # 50 × 100ms = 5s max
+            if self._in_flight == 0:
+                break
+            await asyncio.sleep(0.1)
+        else:
+            if self._in_flight > 0:
+                logger.warning(
+                    f"Closing session with {self._in_flight} in-flight request(s) still pending"
+                )
+
         if self._session and not self._session.closed:
             await self._session.close()
 
@@ -405,19 +426,23 @@ class WeChatBot:
         timeout = (timeout_ms or self.config.api_timeout_ms) / 1000
 
         logger.debug(f"POST {endpoint} body={body[:200]}...")
-        async with self._session.post(url, data=body, headers=headers, timeout=timeout) as resp:
-            raw_text = await resp.text()
-            if not resp.ok:
-                raise WeChatError(f"API error {resp.status}: {raw_text}")
-            data = json.loads(raw_text)
-            ret = data.get("ret", 0)
-            errcode = data.get("errcode", 0)
-            if ret != 0 or errcode != 0:
-                errmsg = data.get("errmsg", "")
-                logger.error(f"API {endpoint} business error: ret={ret}, errcode={errcode}, errmsg={errmsg}")
-            else:
-                logger.debug(f"API {endpoint} status={resp.status} ret=0")
-            return data
+        self._in_flight += 1
+        try:
+            async with self._session.post(url, data=body, headers=headers, timeout=timeout) as resp:
+                raw_text = await resp.text()
+                if not resp.ok:
+                    raise WeChatError(f"API error {resp.status}: {raw_text}")
+                data = json.loads(raw_text)
+                ret = data.get("ret", 0)
+                errcode = data.get("errcode", 0)
+                if ret != 0 or errcode != 0:
+                    errmsg = data.get("errmsg", "")
+                    logger.error(f"API {endpoint} business error: ret={ret}, errcode={errcode}, errmsg={errmsg}")
+                else:
+                    logger.debug(f"API {endpoint} status={resp.status} ret=0")
+                return data
+        finally:
+            self._in_flight -= 1
 
     async def _api_get(
         self,
@@ -431,12 +456,22 @@ class WeChatBot:
         timeout = (timeout_ms or self.config.api_timeout_ms) / 1000
 
         logger.debug(f"GET {url}")
-        async with self._session.get(url, headers=headers, timeout=timeout) as resp:
-            raw_text = await resp.text()
-            logger.debug(f"Response status={resp.status}")
-            if not resp.ok:
-                raise WeChatError(f"API error {resp.status}: {raw_text}")
-            return json.loads(raw_text)
+        self._in_flight += 1
+        try:
+            async with self._session.get(url, headers=headers, timeout=timeout) as resp:
+                raw_text = await resp.text()
+                logger.debug(f"Response status={resp.status}")
+                if not resp.ok:
+                    raise WeChatError(f"API error {resp.status}: {raw_text}")
+                data = json.loads(raw_text)
+                ret = data.get("ret", 0)
+                errcode = data.get("errcode", 0)
+                if ret != 0 or errcode != 0:
+                    errmsg = data.get("errmsg", "")
+                    logger.error(f"GET {url} business error: ret={ret}, errcode={errcode}, errmsg={errmsg}")
+                return data
+        finally:
+            self._in_flight -= 1
 
     async def start_qr_login(self) -> dict[str, Any]:
         base_url = "https://ilinkai.weixin.qq.com"
@@ -753,6 +788,33 @@ class WeChatBot:
             logger.debug(f"Context token activation error (non-fatal): {e}")
             return False
 
+    async def _activate_context_token_with_retry(
+        self, user_id: str, context_token: str, max_retries: int = 2
+    ) -> bool:
+        """Activate context_token with retries on transient failures.
+
+        Called as a fire-and-forget background task from the message loop.
+        Retries up to ``max_retries`` times with 1s / 2s delays.
+        Logs a warning only if all attempts fail — transient failures are
+        expected occasionally and a single success is sufficient.
+        """
+        for attempt in range(max_retries + 1):
+            ok = await self.activate_context_token(user_id, context_token)
+            if ok:
+                return True
+            if attempt < max_retries:
+                delay = 1.0 * (attempt + 1)  # 1s, 2s
+                logger.debug(
+                    f"Context token activation retry {attempt + 1}/{max_retries} "
+                    f"for {user_id} in {delay:.0f}s"
+                )
+                await asyncio.sleep(delay)
+        logger.warning(
+            f"Context token activation failed after {max_retries + 1} attempts "
+            f"for {user_id} — proactive push may be unavailable until next user message"
+        )
+        return False
+
     async def notify_start(self) -> None:
         """Notify the WeChat server that this bot client is starting (official protocol).
 
@@ -799,13 +861,16 @@ class WeChatBot:
             return
 
         ctx_token = self._get_context_token(to_user_id)
+        getconfig_payload: dict[str, Any] = {
+            "ilink_user_id": to_user_id,
+            "base_info": build_base_info(),
+        }
+        # Omit context_token when None/empty — matches official plugin which
+        # serializes `undefined` as absent (JS), not `null` (Python None).
+        if ctx_token:
+            getconfig_payload["context_token"] = ctx_token
         config_data = await self._api_request(
-            "ilink/bot/getconfig",
-            {
-                "ilink_user_id": to_user_id,
-                "context_token": ctx_token,
-                "base_info": build_base_info(),
-            },
+            "ilink/bot/getconfig", getconfig_payload
         )
         typing_ticket = config_data.get("typing_ticket", "")
         if not typing_ticket:
@@ -878,20 +943,25 @@ class WeChatBot:
             if asyncio.iscoroutine(result):
                 await result
 
+        backoff = 1.0  # seconds, doubles on consecutive errors (capped at 60s)
         while self._running:
             try:
                 messages = await self.get_updates()
+                backoff = 1.0  # reset on success
                 for msg in messages:
                     if msg.context_token and msg.from_user_id:
                         self.context_token_updated.set()
                         self.context_token_updated.clear()
                         asyncio.create_task(
-                            self.activate_context_token(msg.from_user_id, msg.context_token)
+                            self._activate_context_token_with_retry(
+                                msg.from_user_id, msg.context_token
+                            )
                         )
                     await self._dispatch_message(msg)
             except Exception as e:
-                logger.error(f"Error in message loop: {e}")
-                await asyncio.sleep(5)
+                logger.error(f"Error in message loop (backoff={backoff:.0f}s): {e}")
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 60.0)
 
     def stop(self) -> None:
         self._running = False

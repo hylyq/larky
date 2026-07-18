@@ -6,7 +6,7 @@
 3. 模拟离线场景测试
 
 运行方式：
-    uv run python tests/test_wechat_priority.py
+    uv run python -m pytest tests/test_wechat_priority.py -v
 """
 
 import asyncio
@@ -16,6 +16,8 @@ import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
@@ -23,6 +25,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+@pytest.mark.asyncio
 async def test_backup_notifier():
     """测试 BackupNotifier 邮件发送功能"""
     print("\n" + "=" * 50)
@@ -57,6 +60,7 @@ async def test_backup_notifier():
     return success
 
 
+@pytest.mark.asyncio
 async def test_message_priority_logic():
     """测试消息优先级处理逻辑"""
     print("\n" + "=" * 50)
@@ -123,6 +127,7 @@ async def test_message_priority_logic():
     return True
 
 
+@pytest.mark.asyncio
 async def test_pending_messages_recovery():
     """测试积压消息恢复逻辑"""
     print("\n" + "=" * 50)
@@ -193,6 +198,7 @@ async def test_pending_messages_recovery():
     return True
 
 
+@pytest.mark.asyncio
 async def test_wechat_client_notify():
     """测试 WeChatClient.notify 方法"""
     print("\n" + "=" * 50)
