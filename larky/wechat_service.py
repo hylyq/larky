@@ -227,6 +227,8 @@ class WeChatService:
                 f"服务重连失败，已停止运行。\n\n最后错误: {self._status.last_error}\n\n请检查服务并重启。",
             )
 
+        await self.bot.notify_stop()
+        await self.bot.close()
         await self.redis.close()
         logger.info("🛑 微信消息服务已停止")
 
@@ -283,7 +285,10 @@ class WeChatService:
             await self._publish_status("online")
 
             if self.bot.get_user_id():
-                await self.bot.notify("🤖 微信消息服务已启动")
+                try:
+                    await self.bot.notify("🤖 微信消息服务已启动")
+                except WeChatError as e:
+                    logger.warning(f"Startup notification failed (non-fatal): {e}")
 
             if self._on_ready_callback:
                 result = self._on_ready_callback()

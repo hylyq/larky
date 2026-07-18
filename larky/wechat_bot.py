@@ -16,7 +16,6 @@ import qrcode
 
 from .wechat_config import (
     WeChatConfig,
-    CHANNEL_VERSION,
     ILINK_APP_ID,
     ILINK_APP_CLIENT_VERSION,
     SESSION_EXPIRED_ERRCODE,
@@ -319,12 +318,15 @@ class WeChatBot:
         for k, v in self._context_tokens.items():
             if k.startswith(prefix):
                 tokens[k[len(prefix):]] = v
-        if not tokens:
-            return
         dir_path = self._get_account_dir()
         os.makedirs(dir_path, exist_ok=True)
         path = self._get_context_tokens_path(account_id)
         try:
+            if not tokens:
+                if os.path.exists(path):
+                    os.remove(path)
+                    logger.debug(f"Removed empty context tokens file for {account_id}")
+                return
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(tokens, f)
         except Exception as e:
@@ -404,7 +406,6 @@ class WeChatBot:
         logger.debug(f"POST {endpoint} body={body[:200]}...")
         async with self._session.post(url, data=body, headers=headers, timeout=timeout) as resp:
             raw_text = await resp.text()
-            logger.info(f"API {endpoint} status={resp.status} body={raw_text[:500]}")
             if not resp.ok:
                 raise WeChatError(f"API error {resp.status}: {raw_text}")
             data = json.loads(raw_text)
@@ -413,6 +414,8 @@ class WeChatBot:
             if ret != 0 or errcode != 0:
                 errmsg = data.get("errmsg", "")
                 logger.error(f"API {endpoint} business error: ret={ret}, errcode={errcode}, errmsg={errmsg}")
+            else:
+                logger.debug(f"API {endpoint} status={resp.status} ret=0")
             return data
 
     async def _api_get(
