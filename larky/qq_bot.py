@@ -96,12 +96,19 @@ class QQBot:
                 raise QQError(f"API {endpoint}: HTTP {resp.status}")
             return await resp.json()
 
-    async def send_text(self, text: str, openid: str, msg_id: str | None = None) -> dict:
+    async def send_text(
+        self, text: str, openid: str | None = None, msg_id: str | None = None,
+        *, target_id: str | None = None,
+    ) -> dict:
+        """Send a text message. ``target_id`` is the unified parameter (preferred)."""
+        _openid = target_id or openid
+        if not _openid:
+            raise QQError("QQ platform requires target_id (user openid)")
         payload = {"content": text, "msg_type": QQMessageType.TEXT.value}
         if msg_id:
             payload["msg_id"] = msg_id
             payload["msg_seq"] = 1
-        return await self._api_request("POST", f"/v2/users/{openid}/messages", payload)
+        return await self._api_request("POST", f"/v2/users/{_openid}/messages", payload)
 
     async def reply_text(self, message: QQMessage, text: str) -> dict:
         return await self.send_text(text, message.author_openid, message.message_id)

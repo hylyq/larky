@@ -1,4 +1,8 @@
-"""飞书机器人主程序"""
+"""飞书机器人主程序（平台特定示例）
+
+💡 新项目推荐使用 unified_main.py + BOT_PLATFORM=feishu 替代。
+   API 完全一致，且可随时切换到微信/QQ 无需改代码。
+"""
 
 import asyncio
 import logging

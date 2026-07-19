@@ -633,7 +633,10 @@ class WeChatBot:
         text: str,
         to_user_id: str | None = None,
         context_token: str | None = None,
+        *,
+        target_id: str | None = None,
     ) -> dict[str, Any]:
+        """Send a text message. ``target_id`` is the unified parameter (preferred)."""
         if not self._account:
             raise WeChatError("Not logged in")
 
@@ -641,7 +644,7 @@ class WeChatBot:
             remaining_min = self._session_guard.get_remaining_ms(self._account.account_id) // 60000
             raise WeChatError(f"Session paused, {remaining_min} min remaining")
 
-        user_id = to_user_id or self._account.user_id
+        user_id = target_id or to_user_id or self._account.user_id
         if not user_id:
             raise WeChatError("No target user_id. User needs to send a message first.")
 

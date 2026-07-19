@@ -263,7 +263,7 @@ class UnifiedBot:
         return await self._bot.reply_text(msg._platform_message, text)
 
     async def send_text(self, text: str, target_id: str | None = None) -> Any:
-        """主动发送文本消息。
+        """主动发送文本消息。所有平台统一使用 ``target_id`` 参数。
 
         Args:
             text: 文本内容。
@@ -272,18 +272,7 @@ class UnifiedBot:
                 - 微信: user_id（不传则发给绑定的账号；需用户先发过消息）
                 - QQ:   用户 openid（必填）
         """
-        if self._platform == "feishu":
-            kwargs: dict[str, Any] = {}
-            if target_id:
-                kwargs["open_id"] = target_id
-            return await self._bot.send_text(text, **kwargs)
-        elif self._platform == "wechat":
-            return await self._bot.send_text(text, to_user_id=target_id)
-        elif self._platform == "qq":
-            if not target_id:
-                from .qq_bot import QQError
-                raise QQError("QQ platform requires target_id (user openid)")
-            return await self._bot.send_text(text, target_id)
+        return await self._bot.send_text(text, target_id=target_id)
 
     # ------------------------------------------------------------------
     # 生命周期

@@ -169,13 +169,15 @@ class LarkBot:
         self,
         text: str,
         *,
+        target_id: str | None = None,
         open_id: str | None = None,
         user_id: str | None = None,
         chat_id: str | None = None,
         email: str | None = None,
     ) -> dict[str, Any]:
+        """Send a text message. ``target_id`` is the unified parameter (preferred)."""
         receive_id_type, receive_id = self._resolve_receive_id(
-            open_id=open_id,
+            open_id=target_id or open_id,
             user_id=user_id,
             chat_id=chat_id,
             email=email,

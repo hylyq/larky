@@ -76,6 +76,7 @@ async def test_message_priority_logic():
     mock_redis.llen = AsyncMock(return_value=0)
 
     service = WeChatService.__new__(WeChatService)
+    service._prefix = "wechat"
     service.redis = mock_redis
     service._status = MagicMock()
     service._status.connected = False
@@ -115,12 +116,12 @@ async def test_message_priority_logic():
     print("\n场景 C: 在线 + 任意优先级消息")
     service._status.connected = True
     service.bot = AsyncMock()
-    service.bot.notify = AsyncMock()
+    service.bot.send_text = AsyncMock()
 
     mock_redis.rpush.reset_mock()
     await service._handle_outgoing_message(high_payload)
 
-    assert service.bot.notify.called, "在线时应直接发送消息"
+    assert service.bot.send_text.called, "在线时应直接发送消息"
     assert not mock_redis.rpush.called, "在线时消息不应入队"
     print("✅ 在线时消息直接发送")
 
@@ -162,13 +163,14 @@ async def test_pending_messages_recovery():
     mock_redis.llen = AsyncMock(return_value=len(test_messages))
 
     service = WeChatService.__new__(WeChatService)
+    service._prefix = "wechat"
     service.redis = mock_redis
     service._status = MagicMock()
     service._status.connected = True
     service._status.message_sent = 0
     service._running = True
     service.bot = AsyncMock()
-    service.bot.notify = AsyncMock()
+    service.bot.send_text = AsyncMock()
 
     print(f"📦 模拟 {len(test_messages)} 条积压消息...")
 
@@ -187,7 +189,7 @@ async def test_pending_messages_recovery():
         source = payload.get("source", "unknown")
         priority = payload.get("priority", "normal")
 
-        await service.bot.notify(text)
+        await service.bot.send_text(text)
         service._status.message_sent += 1
         processed_count += 1
         print(f"   📨 处理: {text} (优先级: {priority})")
@@ -211,6 +213,7 @@ async def test_wechat_client_notify():
     mock_redis.publish = AsyncMock()
 
     client = WeChatClient.__new__(WeChatClient)
+    client._prefix = "wechat"
     client.redis = mock_redis
     client.source = "test-client"
 
