@@ -152,6 +152,82 @@ Choose the right platform based on your needs:
 > That said, WeChat is the easiest to set up (just scan a QR code — no app registration
 > needed) and works great for interactive command bots where the user is actively messaging.
 
+### 🔄 Migration Guide: WeChat → Feishu (Redis + Email)
+
+If you're running the old WeChat + Redis + email backup setup (`WeChatService` + `WeChatClient`)
+and want to switch to Feishu, the migration is three steps with minimal code changes.
+
+**Step 1 — Update `.env`:**
+
+```diff
++ BOT_PLATFORM=feishu
++ APP_ID=cli_xxxxxxxx
++ APP_SECRET=xxxxxxxxxxxx
++ VERIFICATION_TOKEN=xxxxxx
+
+  # These stay exactly the same
+  REDIS_HOST=localhost
+  REDIS_PORT=6379
+  BACKUP_EMAIL_TO=your@email.com
+  BACKUP_EMAIL_SMTP=smtp.gmail.com
+  ...
+```
+
+**Step 2 — Server: same command, new platform:**
+
+```bash
+# Old (WeChat)
+uv run python -m larky
+
+# New (Feishu) — exact same command!
+uv run python -m larky
+# 🚀 统一消息服务启动中 [platform=feishu]...
+```
+
+> **Feishu requires a public webhook URL.** In the [Feishu Open Platform](https://open.feishu.cn/),
+> configure the event subscription URL as `http://<your-server-ip>:3000/` and open port 3000
+> on your cloud firewall. See [Feishu Open Platform](#feishu-open-platform) above.
+
+**Step 3 — Trading programs: change two lines:**
+
+```diff
+- from larky import WeChatClient
++ from larky import UnifiedClient
+
+- client = WeChatClient(source="btc-monitor")
++ client = UnifiedClient(source="btc-monitor")
+
+  # Everything below is unchanged!
+  await client.notify("📈 BTC broke $100,000")
+  await client.notify("🚨 Stop-loss triggered", priority="high")
+
+  @client.message_handler
+  async def on_message(data: dict):
+      text = data.get("text", "")
+      ...
+
+  @client.status_handler
+  async def on_status(data: dict):
+      ...
+
+  await client.run()
+```
+
+**Before / After:**
+
+| | Old (WeChat) | New (Feishu) |
+|---|---|---|
+| Server command | `python -m larky` | `python -m larky` *(unchanged)* |
+| Client class | `WeChatClient` | `UnifiedClient` |
+| Redis channels | `wechat:*` | `bot:*` |
+| Login | Terminal QR scan | Feishu Open Platform config |
+| Proactive push | User must message first | Instant ✅ |
+| Public IP | Not required | **Required** (port 3000) |
+
+> **⚠️ Pending messages:** The new Redis prefix is `bot:` (old: `wechat:`). Queued messages
+> in `wechat:pending_messages` won't auto-migrate. Let them drain under the old WeChat
+> service before switching, or process them manually.
+
 ### Platform-Specific APIs
 
 If you need platform-specific features (e.g., WeChat typing indicators, media access), you can still use the individual bot classes directly. The unified API is built on top of them and they continue to work as before.

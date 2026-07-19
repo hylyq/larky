@@ -151,6 +151,82 @@ uv run python unified_main.py
 > 但微信也有优势：配置最简单（扫码即可，无需申请开发者账号），非常适合用户频繁
 > 主动交互的指令型机器人场景。
 
+### 🔄 迁移指南：微信 → 飞书（Redis + 邮件）
+
+如果你正在运行旧的微信 + Redis + 邮件备份方案（`WeChatService` + `WeChatClient`），
+迁移到飞书只需三步，代码改动极小。
+
+**第一步 — 更新 `.env`：**
+
+```diff
++ BOT_PLATFORM=feishu
++ APP_ID=cli_xxxxxxxx
++ APP_SECRET=xxxxxxxxxxxx
++ VERIFICATION_TOKEN=xxxxxx
+
+  # 以下配置完全不变
+  REDIS_HOST=localhost
+  REDIS_PORT=6379
+  BACKUP_EMAIL_TO=your@email.com
+  BACKUP_EMAIL_SMTP=smtp.gmail.com
+  ...
+```
+
+**第二步 — 服务端：命令不变，底层切换：**
+
+```bash
+# 旧（微信）
+uv run python -m larky
+
+# 新（飞书）— 命令完全一样！
+uv run python -m larky
+# 🚀 统一消息服务启动中 [platform=feishu]...
+```
+
+> **飞书需要公网可达的 Webhook 地址。** 在[飞书开放平台](https://open.feishu.cn/)
+> 的事件订阅中配置 `http://<你的服务器IP>:3000/`，并在云防火墙放行 3000 端口。
+> 详见上方 [飞书开放平台](#飞书开放平台)。
+
+**第三步 — 量化程序：改两行代码：**
+
+```diff
+- from larky import WeChatClient
++ from larky import UnifiedClient
+
+- client = WeChatClient(source="btc-monitor")
++ client = UnifiedClient(source="btc-monitor")
+
+  # 以下完全不变！
+  await client.notify("📈 BTC 突破 $100,000")
+  await client.notify("🚨 止损触发", priority="high")
+
+  @client.message_handler
+  async def on_message(data: dict):
+      text = data.get("text", "")
+      ...
+
+  @client.status_handler
+  async def on_status(data: dict):
+      ...
+
+  await client.run()
+```
+
+**迁移前后对比：**
+
+| | 旧（微信） | 新（飞书） |
+|---|---|---|
+| 服务端命令 | `python -m larky` | `python -m larky`*（不变）* |
+| 客户端类 | `WeChatClient` | `UnifiedClient` |
+| Redis 频道 | `wechat:*` | `bot:*` |
+| 登录方式 | 终端扫码 | 飞书开放平台配置 |
+| 主动推送 | 需用户先发消息激活 | 即时发送 ✅ |
+| 公网要求 | 不需要 | **需要**（端口 3000） |
+
+> **⚠️ 积压消息注意：** 新 Redis 前缀为 `bot:`（旧为 `wechat:`），
+> `wechat:pending_messages` 中的历史积压消息不会自动迁移。请先在旧微信服务下
+> 让它们发送完毕，或手动处理后再切换。
+
 ### 平台特定 API
 
 如果你需要使用平台特定功能（如微信输入状态、媒体访问等），仍然可以直接使用各个 bot 类。统一 API 构建于它们之上，原有的 API 继续可用。
