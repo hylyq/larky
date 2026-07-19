@@ -123,6 +123,35 @@ Run it:
 uv run python unified_main.py
 ```
 
+### ⚖️ Platform Comparison
+
+Choose the right platform based on your needs:
+
+| | 🟢 Feishu | 🔵 WeChat | 🟣 QQ |
+|---|---|---|---|
+| **Proactive push** | ✅ Instant — no user interaction needed | ⚠️ User must send a message first to activate | ✅ Instant |
+| **Keepalive** | ✅ Not needed (webhook push) | ❌ User must periodically message the bot to keep context alive | ✅ Not needed (WebSocket heartbeat) |
+| **Public IP required** | ✅ Yes (webhook callback) | ✅ No (long polling) | ✅ No (WebSocket) |
+| **Setup complexity** | Medium (app creation + webhook config) | Easy (QR scan) | Medium (app creation) |
+| **Token management** | Auto-refresh | QR re-scan on expiry | Auto-refresh |
+| **Message reliability** | High (official API) | Medium (reverse-engineered iLink protocol) | High (official API) |
+
+> **⚠️ WeChat's key limitation — the "keepalive" problem:**
+>
+> The WeChat bot uses a `context_token` mechanism: the bot can only send proactive messages
+> **after the user has sent a message first**. If the user doesn't interact with the bot for
+> a period of time, the `context_token` expires and proactive push stops working — the user
+> must send another message to reactivate it.
+>
+> This makes WeChat **unsuitable for pure notification scenarios** where you want the bot to
+> push alerts without requiring the user to periodically "ping" it.
+>
+> **If you need reliable proactive push, use Feishu or QQ instead.** They support sending
+> messages anytime without prior user interaction.
+>
+> That said, WeChat is the easiest to set up (just scan a QR code — no app registration
+> needed) and works great for interactive command bots where the user is actively messaging.
+
 ### Platform-Specific APIs
 
 If you need platform-specific features (e.g., WeChat typing indicators, media access), you can still use the individual bot classes directly. The unified API is built on top of them and they continue to work as before.
