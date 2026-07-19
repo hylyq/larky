@@ -1,11 +1,14 @@
 import asyncio
 import json
+import logging
 import time
 from typing import Any, Callable
 
 import aiohttp
 
 from .config import LarkConfig
+
+logger = logging.getLogger(__name__)
 from .models import Message, MessageType, TenantAccessToken
 
 

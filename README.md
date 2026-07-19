@@ -803,7 +803,7 @@ The WeChat bot is built on the `@tencent-weixin/openclaw-weixin` protocol — no
 larky/
 ├── larky/
 │   ├── __init__.py
-│   ├── __main__.py         # WeChat message service entry point
+│   ├── __main__.py         # Unified message service entry (all platforms)
 │   ├── unified.py          # 🎯 Unified API (UnifiedBot + UnifiedMessage)
 │   ├── bot.py              # Feishu LarkBot
 │   ├── config.py           # Feishu configuration

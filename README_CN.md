@@ -799,7 +799,7 @@ async def on_status(data: dict):
 larky/
 ├── larky/
 │   ├── __init__.py
-│   ├── __main__.py         # 微信消息服务入口
+│   ├── __main__.py         # 统一消息服务入口（全平台）
 │   ├── unified.py          # 🎯 统一 API（UnifiedBot + UnifiedMessage）
 │   ├── bot.py              # 飞书 LarkBot
 │   ├── config.py           # 飞书配置
