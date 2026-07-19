@@ -9,6 +9,7 @@ from .models import Message, MessageType
 from .qq_bot import QQBot, QQError
 from .qq_config import QQConfig
 from .qq_models import QQMessage, QQMessageType
+from .service import UnifiedService, UnifiedClient, BackupNotifier
 from .unified import UnifiedBot, UnifiedMessage, create_bot
 from .wechat_bot import WeChatBot, WeChatError
 from .wechat_config import WeChatConfig
@@ -20,6 +21,10 @@ __all__ = [
     "UnifiedBot",
     "UnifiedMessage",
     "create_bot",
+    # 统一消息服务（多进程架构）
+    "UnifiedService",
+    "UnifiedClient",
+    "BackupNotifier",
     # 飞书
     "LarkBot",
     "LarkError",

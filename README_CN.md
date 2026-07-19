@@ -542,9 +542,9 @@ async def main():
 asyncio.run(main())
 ```
 
-### 多进程架构
+### 🎯 统一多进程架构（所有平台通用）
 
-当多个量化程序需要共享同一个微信账号时，使用 `WeChatService` + `WeChatClient` 架构：
+当多个量化程序需要共享同一个机器人连接时，使用 `UnifiedService` + `UnifiedClient`。**飞书、微信、QQ 通用**：
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -563,8 +563,8 @@ asyncio.run(main())
 │                            │                           │
 │                            ▼                           │
 │                   ┌─────────────────┐                  │
-│                   │  WeChatService  │ ← 唯一微信连接   │
-│                   └─────────────────┘                  │
+│                   │ UnifiedService  │ ← 唯一平台连接   │
+│                   └─────────────────┘   (飞书/微信/QQ) │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -574,30 +574,41 @@ asyncio.run(main())
 # 1. 启动 Redis
 redis-server
 
-# 2. 启动微信消息服务（唯一微信连接）
+# 2. 启动统一消息服务（平台由 .env 中的 BOT_PLATFORM 决定）
 uv run python -m larky
 
 # 3. 启动量化程序（可同时运行多个）
+uv run python examples/trading_bot_unified.py
 uv run python examples/trading_bot_btc.py
 uv run python examples/trading_bot_eth.py
 ```
 
-**量化程序使用 WeChatClient：**
+**量化程序使用 UnifiedClient（平台无关）：**
 
 ```python
-from larky import WeChatClient
+from larky import UnifiedClient
 
-client = WeChatClient(source="btc-monitor")
+client = UnifiedClient(source="btc-monitor")
 
-# 发送通知
-await client.notify("📈 BTC 突破 $100,000")
+# 发送通知，支持优先级
+await client.notify("📈 BTC 突破 $100,000")                      # 普通优先级
+await client.notify("🚨 止损触发", priority="high")              # 高优先级 → 队列+邮件备份
 
 # 接收消息
 @client.message_handler
 async def on_message(data: dict):
     text = data.get("text", "")
+    platform = data.get("platform", "")  # "feishu" / "wechat" / "qq"
     if "价格" in text:
         await client.notify(f"当前价格: ${await get_price()}")
+
+# 监控服务状态
+@client.status_handler
+async def on_status(data: dict):
+    if data.get("need_login"):
+        logger.warning("服务需要重新认证")
+    elif data.get("status") == "offline":
+        logger.warning("服务离线")
 
 await client.run()
 ```
@@ -609,68 +620,54 @@ REDIS_URL=redis://localhost:6379
 # 或
 REDIS_HOST=localhost
 REDIS_PORT=6379
+
+# 可选：自定义 Redis 频道前缀（默认 "bot"）
+BOT_SERVICE_PREFIX=bot
 ```
 
-### 故障处理
+> **向后兼容**：微信专用的 `WeChatService` 和 `WeChatClient` 保持不变。
+> 新的 `UnifiedService`/`UnifiedClient` 使用独立的 Redis 前缀（`bot:` vs `wechat:`），
+> 可与旧部署共存。
 
-微信消息服务内置以下故障处理机制：
+### 故障处理（所有平台通用）
 
 **1. 掉线自动重连**
 
-网络波动导致断开时，服务会自动重连（默认最多 10 次）。
+网络波动时自动重连，指数退避（默认最多 10 次）。
 
-**2. 会话过期保护 (Session Guard)**
+**2. 认证过期处理**
 
-当微信服务器返回会话过期错误（errcode -14）时：
-- 自动暂停服务 1 小时，避免频繁请求被封禁
-- 发送邮件通知用户重新扫码登录
-- 重新登录后自动恢复
+| 平台 | 行为 |
+|------|------|
+| 微信 | 会话过期 → 暂停 + 邮件提醒扫码 |
+| 飞书 | Token 自动刷新 — 无需用户操作 |
+| QQ | Token 自动刷新 — 无需用户操作 |
 
-邮件配置见上方 [会话保护机制](#会话保护机制-session-guard)。
-
-**3. 消息优先级与备份发送**
-
-量化程序发送的消息支持两种优先级：
+**3. 消息优先级与备份发送（所有平台通用）**
 
 ```python
-# 普通消息（默认）- 离线时丢弃
+# 普通优先级（默认）— 离线时丢弃
 await client.notify("📊 日常报告", priority="normal")
 
-# 高优先级消息 - 离线时邮件备份 + 恢复后重发
+# 高优先级 — 离线时邮件备份 + 恢复后自动重发
 await client.notify("🚨 紧急通知：止损触发", priority="high")
 ```
 
 | 优先级 | 在线时 | 离线时 |
 |--------|--------|--------|
-| `normal`（默认） | 直接发送微信 | 消息丢弃 |
-| `high` | 直接发送微信 | 1. 消息入队保存<br>2. 并行发送邮件备份<br>3. 微信恢复后自动重发 |
+| `normal`（默认） | 直接发送 | 消息丢弃 |
+| `high` | 直接发送 | 1. Redis 队列保存<br>2. 并行发送邮件备份<br>3. 服务恢复后自动重发 |
 
-**使用场景示例：**
-
-```python
-# 日常报告 - 普通优先级，离线时无需通知
-await client.notify("📊 每日盈亏: +$1,234", priority="normal")
-
-# 重要交易信号 - 高优先级，确保送达
-await client.notify("🚨 止损触发: BTC 跌破 $95,000", priority="high")
-
-# 风险预警 - 高优先级
-await client.notify("⚠️ 账户保证金不足，请及时处理", priority="high")
-```
-
-**4. 状态监控**
-
-客户端可监听服务状态变化：
+**4. 状态监控（所有平台通用）**
 
 ```python
 @client.status_handler
 async def on_status(data: dict):
+    platform = data.get("platform")
     if data.get("need_login"):
-        # 服务需要重新登录
-        logger.warning("微信服务需要重新扫码登录")
+        logger.warning("%s 服务需要重新认证", platform)
     elif data.get("status") == "offline":
-        # 服务离线
-        logger.warning("微信服务离线")
+        logger.warning("%s 服务离线", platform)
 ```
 
 ## 平台配置

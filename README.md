@@ -542,9 +542,9 @@ async def main():
 asyncio.run(main())
 ```
 
-### Multi-Process Architecture
+### 🎯 Unified Multi-Process Architecture (All Platforms)
 
-When multiple trading programs need to share one WeChat account, use the `WeChatService` + `WeChatClient` architecture:
+When multiple trading programs need to share one bot connection, use `UnifiedService` + `UnifiedClient`. This works for **all platforms** (Feishu/WeChat/QQ) with the same code:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -563,8 +563,9 @@ When multiple trading programs need to share one WeChat account, use the `WeChat
 │                            │                           │
 │                            ▼                           │
 │                   ┌─────────────────┐                  │
-│                   │  WeChatService  │ ← single WeChat  │
+│                   │ UnifiedService  │ ← single bot     │
 │                   └─────────────────┘   connection     │
+│                        (Feishu/WeChat/QQ)              │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -574,30 +575,41 @@ When multiple trading programs need to share one WeChat account, use the `WeChat
 # 1. Start Redis
 redis-server
 
-# 2. Start WeChat message service (the single WeChat connection)
+# 2. Start unified message service (platform from BOT_PLATFORM in .env)
 uv run python -m larky
 
 # 3. Start trading programs (multiple can run simultaneously)
+uv run python examples/trading_bot_unified.py
 uv run python examples/trading_bot_btc.py
 uv run python examples/trading_bot_eth.py
 ```
 
-**Trading programs use WeChatClient:**
+**Trading programs use UnifiedClient (platform-agnostic):**
 
 ```python
-from larky import WeChatClient
+from larky import UnifiedClient
 
-client = WeChatClient(source="btc-monitor")
+client = UnifiedClient(source="btc-monitor")
 
-# Send notifications
-await client.notify("📈 BTC broke $100,000")
+# Send notifications with priority
+await client.notify("📈 BTC broke $100,000")              # normal priority
+await client.notify("🚨 Stop-loss triggered", priority="high")  # queued + email backup
 
 # Receive messages
 @client.message_handler
 async def on_message(data: dict):
     text = data.get("text", "")
+    platform = data.get("platform", "")  # "feishu" / "wechat" / "qq"
     if "price" in text:
         await client.notify(f"Current price: ${await get_price()}")
+
+# Monitor service status
+@client.status_handler
+async def on_status(data: dict):
+    if data.get("need_login"):
+        logger.warning("Service needs re-auth")
+    elif data.get("status") == "offline":
+        logger.warning("Service offline")
 
 await client.run()
 ```
@@ -609,68 +621,56 @@ REDIS_URL=redis://localhost:6379
 # or
 REDIS_HOST=localhost
 REDIS_PORT=6379
+
+# Optional: custom Redis channel prefix (default: "bot")
+BOT_SERVICE_PREFIX=bot
 ```
 
-### Fault Handling
+> **Backward compatibility**: WeChat-only `WeChatService` and `WeChatClient` still work unchanged.
+> The new `UnifiedService`/`UnifiedClient` use a separate Redis prefix (`bot:` vs `wechat:`) so
+> they can coexist with legacy deployments.
 
-The WeChat message service includes these fault-handling mechanisms:
+### Fault Handling (All Platforms)
+
+The unified message service includes these fault-handling mechanisms:
 
 **1. Auto-Reconnect on Disconnect**
 
-When the network drops, the service automatically reconnects (default: up to 10 retries).
+When the network drops, the service automatically reconnects with exponential backoff (default: up to 10 retries).
 
-**2. Session Guard**
+**2. Auth Expiry Handling**
 
-When the WeChat server returns a session expiry error (errcode -14):
-- Auto-pauses the service for 1 hour to avoid IP bans from repeated requests
-- Sends email notification to re-scan the QR code
-- Auto-resumes after re-login
+| Platform | Behavior |
+|----------|----------|
+| WeChat | Session expiry → pause + email QR re-scan notification |
+| Feishu | Token auto-refreshes — no user action needed |
+| QQ | Token auto-refreshes — no user action needed |
 
-See [Session Guard](#session-guard) above for email configuration.
-
-**3. Message Priority & Backup Delivery**
-
-Messages from trading programs support two priority levels:
+**3. Message Priority & Backup Delivery (All Platforms)**
 
 ```python
 # Normal priority (default) — dropped when offline
 await client.notify("📊 Daily report", priority="normal")
 
-# High priority — email backup when offline + redelivered on recovery
+# High priority — email backup when offline + auto-redeliver on recovery
 await client.notify("🚨 URGENT: Stop-loss triggered", priority="high")
 ```
 
 | Priority | Online | Offline |
 |----------|--------|---------|
-| `normal` (default) | Sent via WeChat | Dropped |
-| `high` | Sent via WeChat | 1. Queued for later<br>2. Email backup sent in parallel<br>3. Auto-redelivered when WeChat recovers |
+| `normal` (default) | Sent via platform | Dropped |
+| `high` | Sent via platform | 1. Queued in Redis<br>2. Email backup sent in parallel<br>3. Auto-redelivered on recovery |
 
-**Usage examples:**
-
-```python
-# Daily report — normal priority, no need to notify when offline
-await client.notify("📊 Daily P&L: +$1,234", priority="normal")
-
-# Important trade signal — high priority, must be delivered
-await client.notify("🚨 Stop-loss triggered: BTC below $95,000", priority="high")
-
-# Risk alert — high priority
-await client.notify("⚠️ Margin call — action required", priority="high")
-```
-
-**4. Status Monitoring**
-
-Clients can listen for service status changes:
+**4. Status Monitoring (All Platforms)**
 
 ```python
 @client.status_handler
 async def on_status(data: dict):
+    platform = data.get("platform")
     if data.get("need_login"):
-        # Service needs re-login
-        logger.warning("WeChat service needs QR re-scan")
+        logger.warning("%s service needs re-auth", platform)
     elif data.get("status") == "offline":
-        # Service is offline
-        logger.warning("WeChat service offline")
+        logger.warning("%s service offline", platform)
 ```
 
 ## Platform Setup
