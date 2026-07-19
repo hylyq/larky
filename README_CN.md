@@ -800,7 +800,9 @@ larky/
 ├── larky/
 │   ├── __init__.py
 │   ├── __main__.py         # 统一消息服务入口（全平台）
+│   ├── _email.py           # 共享邮件通知器（BackupNotifier）
 │   ├── unified.py          # 🎯 统一 API（UnifiedBot + UnifiedMessage）
+│   ├── service.py          # 🎯 多进程服务（UnifiedService + UnifiedClient）
 │   ├── bot.py              # 飞书 LarkBot
 │   ├── config.py           # 飞书配置
 │   ├── handlers.py         # 飞书 Webhook
@@ -811,17 +813,19 @@ larky/
 │   ├── wechat_bot.py       # 微信机器人核心
 │   ├── wechat_config.py    # 微信配置
 │   ├── wechat_models.py    # 微信模型
-│   └── wechat_service.py   # 微信消息服务（多进程架构）
+│   └── wechat_service.py   # 微信服务（薄包装 → service.py）
 ├── examples/
-│   ├── trading_bot_btc.py  # BTC 监控示例
-│   └── trading_bot_eth.py  # ETH 监控示例
+│   ├── trading_bot_btc.py       # BTC 监控（旧 WeChatClient）
+│   ├── trading_bot_eth.py       # ETH 监控（旧 WeChatClient）
+│   └── trading_bot_unified.py   # 🎯 平台无关示例（推荐）
 ├── tests/
-│   ├── test_wechat_core.py     # 微信核心路径测试
-│   └── test_wechat_priority.py # 微信优先级功能测试
+│   ├── test_unified.py          # 统一 API 测试
+│   ├── test_wechat_core.py      # 微信核心路径测试
+│   └── test_wechat_priority.py  # 微信优先级 + 服务测试
 ├── unified_main.py         # 🎯 统一 API 入口（推荐）
-├── main.py                 # 飞书示例
-├── qq_main.py              # QQ示例
-├── wechat_main.py          # 微信示例
+├── main.py                 # 飞书示例（已弃用 — 请用 unified_main.py）
+├── qq_main.py              # QQ示例（已弃用 — 请用 unified_main.py）
+├── wechat_main.py          # 微信示例（已弃用 — 请用 unified_main.py）
 └── pyproject.toml
 ```
 
@@ -882,17 +886,17 @@ uv add larky
 
 ```python
 import asyncio
-from larky.wechat_service import WeChatClient
+from larky import UnifiedClient
 
 async def main():
-    client = WeChatClient(source="my-trading-bot")
-    
+    client = UnifiedClient(source="my-trading-bot")
+
     @client.message_handler
     async def on_message(data: dict):
         text = data.get("text", "")
         if "状态" in text:
             await client.notify("✅ 服务运行正常")
-    
+
     await client.run()
 
 asyncio.run(main())
@@ -909,12 +913,19 @@ REDIS_PORT=6379
 
 ## 测试
 
-运行单元测试：
+使用 pytest 运行全部测试：
 
 ```bash
-# 运行微信优先级功能测试
-uv run python tests/test_wechat_priority.py
+uv run pytest tests/ -v
 ```
+
+测试覆盖（47 个测试）：
+
+| 文件 | 测试数 | 覆盖范围 |
+|------|:-----:|----------|
+| `test_unified.py` | 15 | UnifiedBot、UnifiedMessage、UnifiedClient、WeChatClient 兼容 |
+| `test_wechat_core.py` | 28 | 微信 token 过期、base_info、CDN 解析、指数退避 |
+| `test_wechat_priority.py` | 4 | BackupNotifier、消息优先级、积压队列恢复 |
 
 ## 依赖
 

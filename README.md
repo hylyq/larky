@@ -804,7 +804,9 @@ larky/
 ├── larky/
 │   ├── __init__.py
 │   ├── __main__.py         # Unified message service entry (all platforms)
+│   ├── _email.py           # Shared email notifier (BackupNotifier)
 │   ├── unified.py          # 🎯 Unified API (UnifiedBot + UnifiedMessage)
+│   ├── service.py          # 🎯 Multi-process service (UnifiedService + UnifiedClient)
 │   ├── bot.py              # Feishu LarkBot
 │   ├── config.py           # Feishu configuration
 │   ├── handlers.py         # Feishu webhook
@@ -815,17 +817,19 @@ larky/
 │   ├── wechat_bot.py       # WeChat bot core
 │   ├── wechat_config.py    # WeChat configuration
 │   ├── wechat_models.py    # WeChat models
-│   └── wechat_service.py   # WeChat message service (multi-process)
+│   └── wechat_service.py   # WeChat service (thin wrapper → service.py)
 ├── examples/
-│   ├── trading_bot_btc.py  # BTC monitoring example
-│   └── trading_bot_eth.py  # ETH monitoring example
+│   ├── trading_bot_btc.py       # BTC monitoring (legacy WeChatClient)
+│   ├── trading_bot_eth.py       # ETH monitoring (legacy WeChatClient)
+│   └── trading_bot_unified.py   # 🎯 Platform-agnostic example (recommended)
 ├── tests/
-│   ├── test_wechat_core.py     # WeChat core path tests
-│   └── test_wechat_priority.py # WeChat priority feature tests
+│   ├── test_unified.py          # Unified API tests
+│   ├── test_wechat_core.py      # WeChat core path tests
+│   └── test_wechat_priority.py  # WeChat priority + service tests
 ├── unified_main.py         # 🎯 Unified API entry point (recommended)
-├── main.py                 # Feishu example
-├── qq_main.py              # QQ example
-├── wechat_main.py          # WeChat example
+├── main.py                 # Feishu example (deprecated — use unified_main.py)
+├── qq_main.py              # QQ example (deprecated — use unified_main.py)
+├── wechat_main.py          # WeChat example (deprecated — use unified_main.py)
 └── pyproject.toml
 ```
 
@@ -886,10 +890,10 @@ uv add larky
 
 ```python
 import asyncio
-from larky.wechat_service import WeChatClient
+from larky import UnifiedClient
 
 async def main():
-    client = WeChatClient(source="my-trading-bot")
+    client = UnifiedClient(source="my-trading-bot")
 
     @client.message_handler
     async def on_message(data: dict):
@@ -913,12 +917,19 @@ REDIS_PORT=6379
 
 ## Tests
 
-Run unit tests:
+Run all tests with pytest:
 
 ```bash
-# Run WeChat priority feature tests
-uv run python tests/test_wechat_priority.py
+uv run pytest tests/ -v
 ```
+
+Test coverage (47 tests):
+
+| File | Tests | Coverage |
+|------|:-----:|----------|
+| `test_unified.py` | 15 | UnifiedBot, UnifiedMessage, UnifiedClient, WeChatClient compat |
+| `test_wechat_core.py` | 28 | WeChat token expiry, base_info, CDN parsing, exponential backoff |
+| `test_wechat_priority.py` | 4 | BackupNotifier, message priority, pending queue recovery |
 
 ## Dependencies
 
