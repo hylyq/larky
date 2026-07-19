@@ -6,6 +6,7 @@ A lightweight async bot framework supporting Feishu (Lark), QQ, and WeChat bots 
 
 ## Features
 
+- **🎯 Unified API (New!)**: Write once, run on any platform. Switch between Feishu/WeChat/QQ with one env var — zero code changes.
 - **Async Architecture**: Built on aiohttp for high-performance async I/O
 - **Lightweight Dependencies**: Only requires aiohttp, python-dotenv, pycryptodome, and qrcode
 - **Multi-Platform**: Feishu bot + QQ bot + WeChat bot
@@ -14,7 +15,7 @@ A lightweight async bot framework supporting Feishu (Lark), QQ, and WeChat bots 
 - **Type Hints**: Complete type annotations for IDE-friendly development
 - **WeChat QR Login**: Scan a QR code in the terminal to log in
 - **Credential Persistence**: Auto-saved login credentials, compatible with the official openclaw plugin
-- **Proactive Push**: WeChat bot supports proactive message push, ideal for trading notifications
+- **Proactive Push**: Send messages proactively — ideal for trading notifications
 - **Session Guard**: Automatic pause and email notification when session expires
 - **Data Persistence**: Context tokens and sync buffers auto-persisted, survive restarts
 
@@ -29,7 +30,11 @@ uv sync
 Copy `.env.example` to `.env` and fill in the configuration:
 
 ```env
-# Feishu bot configuration
+# ===== Platform Selection =====
+# Choose: feishu / wechat / qq
+BOT_PLATFORM=feishu
+
+# ===== Feishu Configuration (required when BOT_PLATFORM=feishu) =====
 APP_ID=cli_xxx
 APP_SECRET=xxx
 VERIFICATION_TOKEN=xxx
@@ -37,25 +42,92 @@ ENCRYPT_KEY=
 LARK_HOST=https://open.feishu.cn
 OPEN_ID=
 
-# QQ bot configuration
+# ===== QQ Configuration (required when BOT_PLATFORM=qq) =====
 QQ_APP_ID=xxx
 QQ_APP_SECRET=xxx
 
-# WeChat bot — no configuration needed, just scan the QR code
+# ===== WeChat Configuration (not required — scan QR code to login) =====
 ```
 
 | Variable | Description | Required |
 |----------|-------------|----------|
+| `BOT_PLATFORM` | Platform selection: `feishu` / `wechat` / `qq` | All (default: `feishu`) |
 | `APP_ID` | Feishu app ID | Feishu |
 | `APP_SECRET` | Feishu app secret | Feishu |
 | `QQ_APP_ID` | QQ bot app ID | QQ |
 | `QQ_APP_SECRET` | QQ bot app secret | QQ |
 
-> **WeChat bot requires no configuration**: Just run `uv run python wechat_main.py`, scan the QR code, and you're ready. No `.env` parameters needed.
+> **WeChat bot requires no configuration**: Set `BOT_PLATFORM=wechat`, run `uv run python unified_main.py`, scan the QR code, and you're ready.
 
 ## Quick Start
 
-### Feishu Bot
+### 🎯 Unified API (Recommended)
+
+The unified API lets you write bot code once and switch platforms by changing a single `.env` variable. **This is the recommended way to use larky.**
+
+```python
+import asyncio
+from larky import UnifiedBot, UnifiedMessage
+
+async def main():
+    # Platform is controlled by BOT_PLATFORM in .env — no code changes needed!
+    bot = UnifiedBot()
+
+    @bot.on_message
+    async def handle_message(msg: UnifiedMessage):
+        """Handle non-command messages."""
+        if not msg.is_command("/"):
+            await msg.reply(f"Received: {msg.get_text()}\nSend /help for commands")
+
+    @bot.on_command("help")
+    async def cmd_help(msg: UnifiedMessage, args: list):
+        await msg.reply("Commands: /help /time /echo /info")
+
+    @bot.on_command("time")
+    async def cmd_time(msg: UnifiedMessage, args: list):
+        from datetime import datetime
+        await msg.reply(f"⏰ {datetime.now():%Y-%m-%d %H:%M:%S}")
+
+    @bot.on_command("echo")
+    async def cmd_echo(msg: UnifiedMessage, args: list):
+        await msg.reply("📢 " + (" ".join(args) if args else "Enter some text"))
+
+    @bot.on_command("info")
+    async def cmd_info(msg: UnifiedMessage, args: list):
+        await msg.reply(f"Platform: {msg.platform}\nSender: {msg.sender_id}")
+
+    # Startup callback
+    async def on_ready(bot: UnifiedBot):
+        await bot.send_text("🤖 Bot is online!")
+
+    await bot.run(on_ready=on_ready)
+
+asyncio.run(main())
+```
+
+**Switching platforms is a one-line change in `.env`:**
+
+```bash
+# Switch to Feishu (needs APP_ID + APP_SECRET)
+BOT_PLATFORM=feishu
+
+# Switch to WeChat (no config — scan QR code)
+BOT_PLATFORM=wechat
+
+# Switch to QQ (needs QQ_APP_ID + QQ_APP_SECRET)
+BOT_PLATFORM=qq
+```
+
+Run it:
+```bash
+uv run python unified_main.py
+```
+
+### Platform-Specific APIs
+
+If you need platform-specific features (e.g., WeChat typing indicators, media access), you can still use the individual bot classes directly. The unified API is built on top of them and they continue to work as before.
+
+#### Feishu Bot
 
 ```python
 import asyncio
@@ -135,7 +207,57 @@ asyncio.run(main())
 
 ## API Reference
 
-### Feishu LarkBot
+### 🎯 UnifiedBot (Recommended)
+
+```python
+bot = UnifiedBot()                          # reads BOT_PLATFORM from .env
+bot = UnifiedBot(platform="feishu")         # explicit platform override
+
+# Register handlers (works identically across all platforms)
+@bot.on_message
+async def handler(msg: UnifiedMessage): ...
+
+@bot.on_command("cmd")
+async def cmd(msg: UnifiedMessage, args: list): ...
+
+# Send and reply (works identically across all platforms)
+await bot.reply_text(msg, "Reply text")
+await bot.send_text("Proactive message")
+await bot.send_text("Message to someone", target_id="ou_xxx")
+
+# Convenience: reply directly from the message object
+await msg.reply("Hello!")
+
+# Lifecycle
+await bot.run()                             # start and block
+await bot.run(on_ready=lambda bot: ...)     # with ready callback
+await bot.run(host="0.0.0.0", port=3000)   # Feishu: custom webhook addr
+bot.stop()                                  # stop the message loop
+
+# Properties
+bot.platform                                # "feishu" | "wechat" | "qq"
+```
+
+### UnifiedMessage
+
+```python
+msg.message_id       # Message ID
+msg.chat_id          # Chat / conversation ID
+msg.sender_id        # Sender identifier
+msg.sender_name      # Sender display name
+msg.content          # Message text content
+msg.msg_type         # Message type ("text", "image", etc.)
+msg.platform         # Source platform ("feishu" | "wechat" | "qq")
+msg.create_time      # Message creation timestamp (may be None)
+msg.raw_data         # Raw platform-specific event data
+
+msg.get_text()       # Get text content
+msg.is_command("/")  # Check if it's a command
+msg.get_command("/") # Parse command → (command_name, args_list) or None
+msg.reply(text)      # Shortcut: reply to this message
+```
+
+### Platform-Specific (Advanced)
 
 ```python
 bot = LarkBot.from_env()
@@ -236,14 +358,13 @@ msg.context_token    # Context token (used for replies)
 ## Running
 
 ```bash
-# Feishu bot
-uv run python main.py
+# 🎯 Unified API (recommended) — platform controlled by BOT_PLATFORM in .env
+uv run python unified_main.py
 
-# QQ bot
-uv run python qq_main.py
-
-# WeChat bot
-uv run python wechat_main.py
+# Or use platform-specific entry points:
+uv run python main.py          # Feishu bot
+uv run python qq_main.py       # QQ bot
+uv run python wechat_main.py   # WeChat bot
 ```
 
 ## WeChat Bot In Depth
@@ -578,6 +699,7 @@ larky/
 ├── larky/
 │   ├── __init__.py
 │   ├── __main__.py         # WeChat message service entry point
+│   ├── unified.py          # 🎯 Unified API (UnifiedBot + UnifiedMessage)
 │   ├── bot.py              # Feishu LarkBot
 │   ├── config.py           # Feishu configuration
 │   ├── handlers.py         # Feishu webhook
@@ -593,7 +715,9 @@ larky/
 │   ├── trading_bot_btc.py  # BTC monitoring example
 │   └── trading_bot_eth.py  # ETH monitoring example
 ├── tests/
-│   └── test_wechat_priority.py  # WeChat priority feature tests
+│   ├── test_wechat_core.py     # WeChat core path tests
+│   └── test_wechat_priority.py # WeChat priority feature tests
+├── unified_main.py         # 🎯 Unified API entry point (recommended)
 ├── main.py                 # Feishu example
 ├── qq_main.py              # QQ example
 ├── wechat_main.py          # WeChat example

@@ -6,6 +6,7 @@
 
 ## 特性
 
+- **🎯 统一 API（新功能！）**: 一次编写，多平台运行。通过一个环境变量在飞书/微信/QQ 之间切换 —— 零代码改动
 - **异步架构**：基于 aiohttp，高性能异步 I/O
 - **轻量依赖**：仅需 aiohttp、python-dotenv、pycryptodome、qrcode
 - **多平台支持**：飞书机器人 + QQ机器人 + 微信机器人
@@ -14,7 +15,7 @@
 - **类型提示**：完整的类型注解， IDE 友好
 - **微信扫码登录**：终端显示二维码，扫码即可登录
 - **凭证持久化**：登录信息自动保存，与官方 openclaw 插件兼容
-- **主动推送**：微信机器人支持主动推送消息，适合量化交易通知场景
+- **主动推送**：支持主动推送消息，适合量化交易通知场景
 - **会话保护**：Session Guard 机制，会话过期自动暂停并邮件通知
 - **数据持久化**：Context Token 和同步缓冲区自动持久化，重启不丢失
 
@@ -29,7 +30,11 @@ uv sync
 复制 `.env.example` 为 `.env` 并填入配置：
 
 ```env
-# 飞书机器人配置
+# ===== 平台选择 =====
+# 可选值: feishu / wechat / qq
+BOT_PLATFORM=feishu
+
+# ===== 飞书机器人配置（BOT_PLATFORM=feishu 时必填）=====
 APP_ID=cli_xxx
 APP_SECRET=xxx
 VERIFICATION_TOKEN=xxx
@@ -37,25 +42,92 @@ ENCRYPT_KEY=
 LARK_HOST=https://open.feishu.cn
 OPEN_ID=
 
-# QQ机器人配置
+# ===== QQ机器人配置（BOT_PLATFORM=qq 时必填）=====
 QQ_APP_ID=xxx
 QQ_APP_SECRET=xxx
 
-# 微信机器人无需配置，扫码登录即可使用
+# ===== 微信机器人无需配置，扫码登录即可使用 =====
 ```
 
 | 配置项 | 说明 | 必填 |
 |--------|------|------|
+| `BOT_PLATFORM` | 平台选择：`feishu` / `wechat` / `qq` | 全部（默认 `feishu`） |
 | `APP_ID` | 飞书应用的 App ID | 飞书必填 |
 | `APP_SECRET` | 飞书应用的 App Secret | 飞书必填 |
 | `QQ_APP_ID` | QQ机器人的 App ID | QQ必填 |
 | `QQ_APP_SECRET` | QQ机器人的 App Secret | QQ必填 |
 
-> **微信机器人无需配置**：直接运行 `uv run python wechat_main.py`，扫码登录即可使用，不需要在 `.env` 文件中配置任何参数。
+> **微信机器人无需配置**：设置 `BOT_PLATFORM=wechat`，运行 `uv run python unified_main.py`，扫码登录即可使用，不需要在 `.env` 文件中配置任何参数。
 
 ## 快速开始
 
-### 飞书机器人
+### 🎯 统一 API（推荐）
+
+统一 API 让你只需编写一次代码，通过修改 `.env` 中的一行配置即可切换平台。**这是使用 larky 的推荐方式。**
+
+```python
+import asyncio
+from larky import UnifiedBot, UnifiedMessage
+
+async def main():
+    # 平台由 .env 中的 BOT_PLATFORM 控制 —— 代码无需任何改动！
+    bot = UnifiedBot()
+
+    @bot.on_message
+    async def handle_message(msg: UnifiedMessage):
+        """处理非指令消息。"""
+        if not msg.is_command("/"):
+            await msg.reply(f"收到: {msg.get_text()}\n发送 /help 查看命令")
+
+    @bot.on_command("help")
+    async def cmd_help(msg: UnifiedMessage, args: list):
+        await msg.reply("命令列表: /help /time /echo /info")
+
+    @bot.on_command("time")
+    async def cmd_time(msg: UnifiedMessage, args: list):
+        from datetime import datetime
+        await msg.reply(f"⏰ {datetime.now():%Y-%m-%d %H:%M:%S}")
+
+    @bot.on_command("echo")
+    async def cmd_echo(msg: UnifiedMessage, args: list):
+        await msg.reply("📢 " + (" ".join(args) if args else "请输入内容"))
+
+    @bot.on_command("info")
+    async def cmd_info(msg: UnifiedMessage, args: list):
+        await msg.reply(f"平台: {msg.platform}\n发送者: {msg.sender_id}")
+
+    # 启动回调
+    async def on_ready(bot: UnifiedBot):
+        await bot.send_text("🤖 机器人已上线！")
+
+    await bot.run(on_ready=on_ready)
+
+asyncio.run(main())
+```
+
+**切换平台只需修改 `.env` 中的一行：**
+
+```bash
+# 切换到飞书（需 APP_ID + APP_SECRET）
+BOT_PLATFORM=feishu
+
+# 切换到微信（无需配置 —— 扫码登录）
+BOT_PLATFORM=wechat
+
+# 切换到 QQ（需 QQ_APP_ID + QQ_APP_SECRET）
+BOT_PLATFORM=qq
+```
+
+运行：
+```bash
+uv run python unified_main.py
+```
+
+### 平台特定 API
+
+如果你需要使用平台特定功能（如微信输入状态、媒体访问等），仍然可以直接使用各个 bot 类。统一 API 构建于它们之上，原有的 API 继续可用。
+
+#### 飞书机器人
 
 ```python
 import asyncio
@@ -135,7 +207,57 @@ asyncio.run(main())
 
 ## API 参考
 
-### 飞书 LarkBot
+### 🎯 UnifiedBot（推荐）
+
+```python
+bot = UnifiedBot()                          # 从 .env 读取 BOT_PLATFORM
+bot = UnifiedBot(platform="feishu")         # 显式指定平台
+
+# 注册处理器（所有平台写法完全一致）
+@bot.on_message
+async def handler(msg: UnifiedMessage): ...
+
+@bot.on_command("cmd")
+async def cmd(msg: UnifiedMessage, args: list): ...
+
+# 发送和回复（所有平台写法完全一致）
+await bot.reply_text(msg, "回复内容")
+await bot.send_text("主动推送消息")
+await bot.send_text("发给指定用户", target_id="ou_xxx")
+
+# 快捷回复：直接从消息对象回复
+await msg.reply("你好！")
+
+# 生命周期
+await bot.run()                             # 启动并阻塞
+await bot.run(on_ready=lambda bot: ...)     # 带就绪回调
+await bot.run(host="0.0.0.0", port=3000)   # 飞书：自定义 webhook 地址
+bot.stop()                                  # 停止消息循环
+
+# 属性
+bot.platform                                # "feishu" | "wechat" | "qq"
+```
+
+### UnifiedMessage
+
+```python
+msg.message_id       # 消息 ID
+msg.chat_id          # 会话 ID
+msg.sender_id        # 发送者标识
+msg.sender_name      # 发送者昵称
+msg.content          # 消息文本内容
+msg.msg_type         # 消息类型（"text", "image" 等）
+msg.platform         # 来源平台（"feishu" | "wechat" | "qq"）
+msg.create_time      # 消息创建时间戳（可能为 None）
+msg.raw_data         # 原始平台事件数据
+
+msg.get_text()       # 获取文本内容
+msg.is_command("/")  # 是否为指令
+msg.get_command("/") # 解析指令 → (指令名, 参数列表) 或 None
+msg.reply(text)      # 快捷回复此消息
+```
+
+### 平台特有 API（高级用法）
 
 ```python
 bot = LarkBot.from_env()
@@ -236,14 +358,13 @@ msg.context_token    # 上下文 token (用于回复)
 ## 运行
 
 ```bash
-# 飞书机器人
-uv run python main.py
+# 🎯 统一 API（推荐）—— 平台由 .env 中的 BOT_PLATFORM 控制
+uv run python unified_main.py
 
-# QQ机器人
-uv run python qq_main.py
-
-# 微信机器人
-uv run python wechat_main.py
+# 或使用各平台专用入口：
+uv run python main.py          # 飞书机器人
+uv run python qq_main.py       # QQ机器人
+uv run python wechat_main.py   # 微信机器人
 ```
 
 ## 微信机器人详解
@@ -578,6 +699,7 @@ larky/
 ├── larky/
 │   ├── __init__.py
 │   ├── __main__.py         # 微信消息服务入口
+│   ├── unified.py          # 🎯 统一 API（UnifiedBot + UnifiedMessage）
 │   ├── bot.py              # 飞书 LarkBot
 │   ├── config.py           # 飞书配置
 │   ├── handlers.py         # 飞书 Webhook
@@ -593,7 +715,9 @@ larky/
 │   ├── trading_bot_btc.py  # BTC 监控示例
 │   └── trading_bot_eth.py  # ETH 监控示例
 ├── tests/
-│   └── test_wechat_priority.py  # 微信优先级功能测试
+│   ├── test_wechat_core.py     # 微信核心路径测试
+│   └── test_wechat_priority.py # 微信优先级功能测试
+├── unified_main.py         # 🎯 统一 API 入口（推荐）
 ├── main.py                 # 飞书示例
 ├── qq_main.py              # QQ示例
 ├── wechat_main.py          # 微信示例
