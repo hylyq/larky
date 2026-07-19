@@ -123,6 +123,43 @@ BOT_PLATFORM=qq
 uv run python unified_main.py
 ```
 
+### ⚠️ 两种运行模式：独立 vs 服务
+
+Larky 有**两种运行模式**，根据使用场景选择：
+
+| | 独立模式 | 服务模式 |
+|---|---|---|
+| **命令** | `uv run python unified_main.py` | `uv run python -m larky` |
+| **底层类** | `UnifiedBot` | `UnifiedService` |
+| **需要 Redis？** | 否 | **是** |
+| **外部程序能否收发消息？** | 否 — bot 自己处理 | **是** — 通过 `UnifiedClient` + Redis Pub/Sub |
+| **适用场景** | 简单 bot、demo、单进程应用 | 交易系统、多程序架构 |
+
+**什么时候用服务模式：**
+
+如果你有一个独立的程序（比如交易机器人）使用 `UnifiedClient` 发送通知或接收命令，
+你**必须**使用服务模式。独立 bot 和 `UnifiedClient` 走不同的通道，互相看不到：
+
+```
+❌ 错误 — 互相不通：
+  unified_main.py (UnifiedBot)          cryptoguard (UnifiedClient)
+       │                                        │
+       ▼                                        ▼
+  直接处理消息                          订阅 Redis bot:incoming
+       │                                        │
+       ✗────────── 无连接 ───────────────────✗
+
+✅ 正确 — Redis 桥接：
+  python -m larky (UnifiedService)       cryptoguard (UnifiedClient)
+       │                                        │
+       └──── Redis bot:incoming/outgoing ───────┘
+```
+
+**什么时候用独立模式：**
+
+你只是做一个简单的 bot，跑 `/help`、`/time` 等指令——没有外部程序需要和它交互。
+这就是 `unified_main.py` 演示的场景。
+
 ### ⚖️ 平台对比
 
 根据你的需求选择合适的平台：

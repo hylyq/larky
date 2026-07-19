@@ -123,6 +123,44 @@ Run it:
 uv run python unified_main.py
 ```
 
+### ⚠️ Two Run Modes: Standalone vs. Service
+
+Larky has **two run modes**. Choose the right one for your use case:
+
+| | Standalone Mode | Service Mode |
+|---|---|---|
+| **Command** | `uv run python unified_main.py` | `uv run python -m larky` |
+| **Underlying class** | `UnifiedBot` | `UnifiedService` |
+| **Redis required?** | No | **Yes** |
+| **External programs can send/receive?** | No — bot handles messages directly | **Yes** — via `UnifiedClient` + Redis Pub/Sub |
+| **Best for** | Simple bots, demos, single-process apps | Trading systems, multi-program architectures |
+
+**When to use Service Mode:**
+
+If you have a separate program (e.g., a trading bot) that uses `UnifiedClient` to send
+notifications or receive commands, you **must** run the service mode. The standalone bot
+and `UnifiedClient` communicate through different channels and won't see each other:
+
+```
+❌ WRONG — they don't talk:
+  unified_main.py (UnifiedBot)          cryptoguard (UnifiedClient)
+       │                                        │
+       ▼                                        ▼
+  Handles messages directly              Subscribes to Redis bot:incoming
+       │                                        │
+       ✗────────── no connection ──────────────✗
+
+✅ CORRECT — Redis bridges them:
+  python -m larky (UnifiedService)       cryptoguard (UnifiedClient)
+       │                                        │
+       └──── Redis bot:incoming/outgoing ───────┘
+```
+
+**When to use Standalone Mode:**
+
+You're building a single bot with simple `/help`, `/time` commands — no external programs
+need to interact with it. This is what `unified_main.py` demonstrates.
+
 ### ⚖️ Platform Comparison
 
 Choose the right platform based on your needs:
