@@ -35,6 +35,7 @@ class QQBot:
         self._heartbeat_task: asyncio.Task | None = None
         self._max_reconnect: int = 10
         self._reconnect_delay: float = 5.0
+        self._on_ready_callback: Callable[[], Any] | None = None
 
     @classmethod
     def from_env(cls) -> "QQBot":
@@ -67,7 +68,10 @@ class QQBot:
         async with self._session.post(
             self.config.token_url,
             json={"appId": self.config.app_id, "clientSecret": self.config.app_secret},
+            timeout=aiohttp.ClientTimeout(total=15),
         ) as resp:
+            if not resp.ok:
+                raise QQError(f"Token refresh failed: HTTP {resp.status}")
             data = await resp.json()
             if "access_token" not in data:
                 raise QQError(f"Failed to get token: {data}")
@@ -84,8 +88,12 @@ class QQBot:
             "X-Union-Appid": self.config.app_id,
         }
         async with self._session.request(
-            method, f"{self.config.qq_host}{endpoint}", json=payload, headers=headers
+            method, f"{self.config.qq_host}{endpoint}",
+            json=payload, headers=headers,
+            timeout=aiohttp.ClientTimeout(total=30),
         ) as resp:
+            if not resp.ok:
+                raise QQError(f"API {endpoint}: HTTP {resp.status}")
             return await resp.json()
 
     async def send_text(self, text: str, openid: str, msg_id: str | None = None) -> dict:
@@ -123,7 +131,11 @@ class QQBot:
         elif op == 0:
             if t == "READY":
                 self._session_id = d.get("session_id")
-                logger.info(f"Bot ready: {d.get('user', {}).get('username', 'Unknown')}")
+                logger.info("Bot ready: %s", d.get("user", {}).get("username", "Unknown"))
+                if self._on_ready_callback:
+                    result = self._on_ready_callback()
+                    if asyncio.iscoroutine(result):
+                        await result
             elif t == "C2C_MESSAGE_CREATE":
                 await self._dispatch_message(QQMessage.from_event(data))
 

@@ -159,6 +159,7 @@ class UnifiedService:
 
         # 状态
         self._running = False
+        self._stop_requested = False
         self._status = ServiceStatus()
         self._max_reconnect = max_reconnect
         self._reconnect_delay = reconnect_delay
@@ -202,7 +203,7 @@ class UnifiedService:
         self._setup_handlers()
 
         reconnect_count = 0
-        while reconnect_count < self._max_reconnect:
+        while reconnect_count < self._max_reconnect and not self._stop_requested:
             try:
                 await self._run_once()
                 reconnect_count = 0  # 正常退出
@@ -465,7 +466,8 @@ class UnifiedService:
                 ):
                     healthy = await wechat_bot.check_context_health()
                     ctx_token = wechat_bot._get_context_token(wechat_bot.get_user_id())
-                    if not healthy and ctx_token is None:
+                    if not healthy and ctx_token is not None:
+                        # Token exists but is expired — notify the user.
                         logger.warning("🔴 context_token 已过期，发送邮件通知")
                         await self._backup_notifier.send(
                             "⚠️ 微信会话已过期，需要手动激活",
@@ -671,6 +673,13 @@ BOT_PLATFORM=wechat uv run python -m larky
         """设置就绪回调。"""
         self._on_ready_callback = callback
 
+    def stop(self) -> None:
+        """请求停止服务（优雅退出）。"""
+        self._stop_requested = True
+        self._running = False
+        if self.bot:
+            self.bot.stop()
+
 
 # ------------------------------------------------------------------
 # 统一客户端
@@ -833,26 +842,3 @@ class UnifiedClient:
 
 
 # ------------------------------------------------------------------
-# 入口点
-# ------------------------------------------------------------------
-
-
-async def run_service() -> None:
-    """运行统一消息服务（python -m larky 入口点）。
-
-    平台由 BOT_PLATFORM 环境变量决定。"""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
-
-    redis_host = os.getenv("REDIS_HOST", "localhost")
-    redis_port = int(os.getenv("REDIS_PORT", "6379"))
-    redis_url = os.getenv("REDIS_URL", f"redis://{redis_host}:{redis_port}")
-
-    service = UnifiedService(redis_url=redis_url)
-    await service.run()
-
-
-if __name__ == "__main__":
-    asyncio.run(run_service())

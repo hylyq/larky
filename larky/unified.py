@@ -281,7 +281,8 @@ class UnifiedBot:
             return await self._bot.send_text(text, to_user_id=target_id)
         elif self._platform == "qq":
             if not target_id:
-                raise ValueError("QQ platform requires target_id (user openid)")
+                from .qq_bot import QQError
+                raise QQError("QQ platform requires target_id (user openid)")
             return await self._bot.send_text(text, target_id)
 
     # ------------------------------------------------------------------
@@ -381,11 +382,15 @@ class UnifiedBot:
     async def _run_qq(
         self, on_ready: Callable[["UnifiedBot"], Any] | None
     ) -> None:
-        if on_ready:
-            result = on_ready(self)
-            if asyncio.iscoroutine(result):
-                await result
+        # QQBot.run() does not support on_ready internally. Fire after the first
+        # connection succeeds — the bot will call close() if it fails permanently.
+        async def _qq_on_ready():
+            if on_ready:
+                result = on_ready(self)
+                if asyncio.iscoroutine(result):
+                    await result
 
+        self._bot._on_ready_callback = _qq_on_ready
         await self._bot.run()
 
     def stop(self) -> None:

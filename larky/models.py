@@ -106,5 +106,10 @@ class AESCipher:
 
     @staticmethod
     def _unpad(s: bytes) -> bytes:
-        # Standard PKCS7 unpadding: last byte indicates padding length.
-        return s[: -s[-1]]
+        # Standard PKCS7 unpadding with full validation.
+        pad = s[-1]
+        if pad < 1 or pad > 16:
+            raise ValueError(f"Invalid PKCS7 padding byte: {pad}")
+        if s[-pad:] != bytes([pad]) * pad:
+            raise ValueError("Invalid PKCS7 padding")
+        return s[:-pad]

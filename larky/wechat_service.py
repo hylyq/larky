@@ -478,7 +478,7 @@ uv run python -m larky.wechat_service
             try:
                 if self._status.connected and self.bot.get_user_id():
                     healthy = await self.bot.check_context_health()
-                    if not healthy and self.bot._get_context_token(self.bot.get_user_id()) is None:
+                    if not healthy and self.bot._get_context_token(self.bot.get_user_id()) is not None:
                         logger.warning("🔴 context_token 已过期，发送邮件通知")
                         await self._backup_notifier.send(
                             "⚠️ 微信会话已过期，需要手动激活",

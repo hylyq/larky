@@ -87,7 +87,7 @@ class EmailNotifier:
         - 465: SMTP_SSL（直接 SSL）
         - 587 及其他: SMTP + STARTTLS
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         def _send():
             msg = MIMEText(body, "plain", "utf-8")

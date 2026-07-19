@@ -61,7 +61,7 @@ class FileItem:
     media: CDNMedia | None = None
     file_name: str = ""
     md5: str = ""
-    len: str = ""
+    len: int = 0
 
 
 @dataclass

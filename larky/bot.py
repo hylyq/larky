@@ -262,13 +262,19 @@ class LarkBot:
             if cmd_result:
                 cmd, args = cmd_result
                 if cmd in self._command_handlers:
-                    result = self._command_handlers[cmd](message, args)
-                    if asyncio.iscoroutine(result):
-                        await result
-        
+                    try:
+                        result = self._command_handlers[cmd](message, args)
+                        if asyncio.iscoroutine(result):
+                            await result
+                    except Exception:
+                        logger.exception("Command handler error: /%s", cmd)
+
         for handler in self._message_handlers:
-            result = handler(message)
-            if asyncio.iscoroutine(result):
-                await result
+            try:
+                result = handler(message)
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception:
+                logger.exception("Message handler error")
         
         return None
