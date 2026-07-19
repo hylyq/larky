@@ -41,11 +41,11 @@ import asyncio
 import json
 import logging
 import os
-import smtplib
 from dataclasses import dataclass
 from datetime import datetime
-from email.mime.text import MIMEText
 from typing import Any, Callable
+
+from ._email import EmailNotifier as BackupNotifier  # re-export under existing name
 
 try:
     import redis.asyncio as redis
@@ -108,94 +108,7 @@ class ServiceStatus:
 
 
 # ------------------------------------------------------------------
-# 备份邮件通知器
-# ------------------------------------------------------------------
-
-
-class BackupNotifier:
-    """备份通知器 — 当服务失联时通过邮件通知用户。
-
-    所有平台通用。通过 BACKUP_EMAIL_* 环境变量配置。
-    """
-
-    def __init__(self):
-        self.email_enabled = bool(os.getenv("BACKUP_EMAIL_TO"))
-        self.email_from = os.getenv("BACKUP_EMAIL_FROM", "")
-        self.email_to = os.getenv("BACKUP_EMAIL_TO", "")
-        self.email_smtp = os.getenv("BACKUP_EMAIL_SMTP", "smtp.gmail.com")
-        self.email_port = int(os.getenv("BACKUP_EMAIL_PORT", "587"))
-        self.email_user = os.getenv("BACKUP_EMAIL_USER", "")
-        self.email_password = os.getenv("BACKUP_EMAIL_PASSWORD", "")
-
-    async def notify(self, subject: str, message: str) -> bool:
-        """发送通用通知邮件。"""
-        if not self.email_enabled:
-            return False
-
-        try:
-            await self._send_email(subject, message)
-            logger.info(f"📧 备份邮件已发送: {subject}")
-            return True
-        except Exception as e:
-            logger.error(f"发送备份邮件失败: {e}")
-            return False
-
-    async def send_message_backup(
-        self, text: str, source: str, timestamp: str | None = None
-    ) -> bool:
-        """发送高优先级消息的邮件备份。
-
-        当服务离线无法发送消息时，将消息内容通过邮件送达。
-        """
-        if not self.email_enabled:
-            return False
-
-        subject = f"🚨 [高优先级消息备份] {source}"
-        message = f"""消息服务离线，高优先级消息已通过邮件备份发送。
-
-来源程序: {source}
-时间: {timestamp or datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
-消息内容:
-{text}
-
----
-此消息将在服务恢复后自动重发。"""
-
-        try:
-            await self._send_email(subject, message)
-            logger.info(f"📧 消息备份邮件已发送: {text[:30]}...")
-            return True
-        except Exception as e:
-            logger.error(f"发送消息备份邮件失败: {e}")
-            return False
-
-    async def _send_email(self, subject: str, message: str) -> None:
-        """发送邮件。
-
-        根据端口自动选择连接方式：
-        - 465: SMTP_SSL（直接 SSL）
-        - 587 及其他: SMTP + STARTTLS
-        """
-        loop = asyncio.get_event_loop()
-
-        def send():
-            msg = MIMEText(message, "plain", "utf-8")
-            msg["Subject"] = subject
-            msg["From"] = self.email_from
-            msg["To"] = self.email_to
-
-            if self.email_port == 465:
-                with smtplib.SMTP_SSL(self.email_smtp, self.email_port) as server:
-                    server.login(self.email_user, self.email_password)
-                    server.send_message(msg)
-            else:
-                with smtplib.SMTP(self.email_smtp, self.email_port) as server:
-                    server.starttls()
-                    server.login(self.email_user, self.email_password)
-                    server.send_message(msg)
-
-        await loop.run_in_executor(None, send)
+# BackupNotifier 从 ._email 导入 (EmailNotifier) — 见文件顶部 import
 
 
 # ------------------------------------------------------------------
@@ -304,7 +217,7 @@ class UnifiedService:
                 else:
                     reconnect_count += 1
                     self._status.reconnect_count = reconnect_count
-                    delay = self._reconnect_delay * reconnect_count
+                    delay = min(self._reconnect_delay * (2 ** (reconnect_count - 1)), 300)
                     logger.warning(
                         "⚠️ 连接断开 (%d/%d)，%ds 后重连: %s",
                         reconnect_count, self._max_reconnect, delay, e,
@@ -313,7 +226,7 @@ class UnifiedService:
 
         if reconnect_count >= self._max_reconnect:
             logger.error("❌ 重连次数超过上限 (%d)，服务停止", self._max_reconnect)
-            await self._backup_notifier.notify(
+            await self._backup_notifier.send(
                 "⚠️ 消息服务已停止",
                 f"服务重连失败，已停止运行。\n\n"
                 f"平台: {self.bot.platform}\n"
@@ -554,7 +467,7 @@ class UnifiedService:
                     ctx_token = wechat_bot._get_context_token(wechat_bot.get_user_id())
                     if not healthy and ctx_token is None:
                         logger.warning("🔴 context_token 已过期，发送邮件通知")
-                        await self._backup_notifier.notify(
+                        await self._backup_notifier.send(
                             "⚠️ 微信会话已过期，需要手动激活",
                             f"""微信机器人的 context_token 已过期，暂时无法主动推送消息。
 
@@ -644,11 +557,16 @@ class UnifiedService:
 
             try:
                 payload = json.loads(data)
-                text = payload.get("text", "")
-                source = payload.get("source", "unknown")
-                priority = payload.get("priority", "normal")
-                target_id = payload.get("target_id")
+            except json.JSONDecodeError:
+                logger.error("❌ %s队列中消息 JSON 损坏，已丢弃", label)
+                continue
 
+            text = payload.get("text", "")
+            source = payload.get("source", "unknown")
+            priority = payload.get("priority", "normal")
+            target_id = payload.get("target_id")
+
+            try:
                 await self.bot.send_text(text, target_id=target_id)
                 self._status.message_sent += 1
                 logger.info(
@@ -695,7 +613,7 @@ class UnifiedService:
         pname = platform_names.get(self.bot.platform, self.bot.platform)
 
         if self.bot.platform == "wechat":
-            await self._backup_notifier.notify(
+            await self._backup_notifier.send(
                 f"⚠️ {pname}机器人需要重新登录",
                 f"""{pname}机器人登录已过期，请重新扫码登录。
 
@@ -708,7 +626,7 @@ BOT_PLATFORM=wechat uv run python -m larky
 如有重要消息未发送，将在重新登录后自动重发。""",
             )
         else:
-            await self._backup_notifier.notify(
+            await self._backup_notifier.send(
                 f"⚠️ {pname}服务认证失败",
                 f"""{pname}服务认证失败，请检查配置。
 

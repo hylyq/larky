@@ -4,11 +4,9 @@ import json
 import logging
 import os
 import secrets
-import smtplib
 import time
 import uuid
 from datetime import datetime
-from email.mime.text import MIMEText
 from typing import Any, Callable
 
 import aiohttp
@@ -50,17 +48,14 @@ class WeChatError(Exception):
 
 
 class SessionExpiredNotifier:
+    """微信会话过期邮件通知器 — 基于共享 EmailNotifier 的薄包装。"""
+
     def __init__(self):
-        self.enabled = bool(os.getenv("BACKUP_EMAIL_TO"))
-        self.email_from = os.getenv("BACKUP_EMAIL_FROM", "")
-        self.email_to = os.getenv("BACKUP_EMAIL_TO", "")
-        self.email_smtp = os.getenv("BACKUP_EMAIL_SMTP", "smtp.gmail.com")
-        self.email_port = int(os.getenv("BACKUP_EMAIL_PORT", "587"))
-        self.email_user = os.getenv("BACKUP_EMAIL_USER", "")
-        self.email_password = os.getenv("BACKUP_EMAIL_PASSWORD", "")
+        from ._email import EmailNotifier
+        self._email = EmailNotifier()
 
     async def notify_session_expired(self, account_id: str, server_name: str = "") -> bool:
-        if not self.enabled:
+        if not self._email.enabled:
             logger.debug("Email notification not configured (BACKUP_EMAIL_TO not set)")
             return False
 
@@ -76,34 +71,7 @@ uv run python -m larky.wechat_service
 
 暂停期间消息将无法发送，重新登录后自动恢复。"""
 
-        try:
-            await self._send_email(subject, message)
-            logger.info(f"📧 会话过期邮件通知已发送: {account_id}")
-            return True
-        except Exception as e:
-            logger.error(f"发送会话过期邮件失败: {e}")
-            return False
-
-    async def _send_email(self, subject: str, message: str) -> None:
-        loop = asyncio.get_event_loop()
-
-        def send():
-            msg = MIMEText(message, "plain", "utf-8")
-            msg["Subject"] = subject
-            msg["From"] = self.email_from
-            msg["To"] = self.email_to
-
-            if self.email_port == 465:
-                with smtplib.SMTP_SSL(self.email_smtp, self.email_port) as server:
-                    server.login(self.email_user, self.email_password)
-                    server.send_message(msg)
-            else:
-                with smtplib.SMTP(self.email_smtp, self.email_port) as server:
-                    server.starttls()
-                    server.login(self.email_user, self.email_password)
-                    server.send_message(msg)
-
-        await loop.run_in_executor(None, send)
+        return await self._email.send(subject, message)
 
 
 class SessionGuard:
@@ -168,6 +136,7 @@ class WeChatBot:
         self._long_poll_timeout_ms: int = self.config.long_poll_timeout_ms
         self.context_token_updated = asyncio.Event()
         self._in_flight = 0  # count of in-progress _api_request / _api_get calls
+        self._background_tasks: set[asyncio.Task] = set()  # fire-and-forget tasks tracked for cleanup
 
     @classmethod
     def from_env(cls) -> "WeChatBot":
@@ -187,14 +156,22 @@ class WeChatBot:
     async def close(self) -> None:
         """Shut down the bot gracefully.
 
-        Sets the running flag, sends notifyStop, then waits up to 5 seconds
-        for in-flight API requests to complete before closing the HTTP session.
+        Sets the running flag, sends notifyStop, cancels background tasks,
+        then waits up to 5 seconds for in-flight API requests to complete
+        before closing the HTTP session.
         """
         self._running = False
         try:
             await self.notify_stop()
         except Exception:
             logger.debug("notifyStop failed during shutdown (ignored)")
+
+        # Cancel all fire-and-forget background tasks
+        for task in list(self._background_tasks):
+            task.cancel()
+        if self._background_tasks:
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            self._background_tasks.clear()
 
         # Wait for in-flight requests to drain
         for _ in range(50):  # 50 × 100ms = 5s max
@@ -360,8 +337,9 @@ class WeChatBot:
         return None
 
     def _random_wechat_uin(self) -> str:
+        """Generate a random X-WECHAT-UIN header value."""
         uint32 = secrets.randbelow(2**32)
-        return base64.b64encode(str(uint32).encode("utf-8")).decode("utf-8")
+        return base64.b64encode(uint32.to_bytes(4, "big")).decode("utf-8")
 
     def _build_common_headers(self) -> dict[str, str]:
         return {
@@ -950,13 +928,17 @@ class WeChatBot:
                 backoff = 1.0  # reset on success
                 for msg in messages:
                     if msg.context_token and msg.from_user_id:
+                        # Set the event so consumers (UnifiedService / WeChatService)
+                        # can wake from wait() and drain failed/pending queues.
+                        # The consumer is responsible for calling .clear() after acting.
                         self.context_token_updated.set()
-                        self.context_token_updated.clear()
-                        asyncio.create_task(
+                        task = asyncio.create_task(
                             self._activate_context_token_with_retry(
                                 msg.from_user_id, msg.context_token
                             )
                         )
+                        self._background_tasks.add(task)
+                        task.add_done_callback(self._background_tasks.discard)
                     await self._dispatch_message(msg)
             except Exception as e:
                 logger.error(f"Error in message loop (backoff={backoff:.0f}s): {e}")

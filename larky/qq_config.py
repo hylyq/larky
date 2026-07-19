@@ -9,6 +9,12 @@ class QQConfig:
     qq_host: str = "https://api.sgroup.qq.com"
     token_url: str = "https://bots.qq.com/app/getAppAccessToken"
 
+    def __post_init__(self) -> None:
+        if not self.app_id:
+            raise ValueError("QQ_APP_ID is required")
+        if not self.app_secret:
+            raise ValueError("QQ_APP_SECRET is required")
+
     @classmethod
     def from_env(cls) -> "QQConfig":
         return cls(

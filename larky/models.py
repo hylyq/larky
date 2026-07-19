@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from Crypto.Cipher import AES
+
 
 class MessageType(Enum):
     TEXT = "text"
@@ -54,7 +56,7 @@ class Message:
             content=content,
             sender_id=sender_id.get("union_id"),
             sender_open_id=sender_open_id,
-            sender_name=sender.get("sender_id", {}).get("sender_name"),
+            sender_name=sender.get("sender_name"),
             create_time=message.get("create_time"),
             root_id=message.get("root_id"),
             parent_id=message.get("parent_id"),
@@ -95,8 +97,6 @@ class AESCipher:
 
     def decrypt(self, enc: bytes) -> bytes:
         iv = enc[: self.bs]
-        from Crypto.Cipher import AES
-
         cipher = AES.new(self.key, AES.MODE_CBC, iv)
         return self._unpad(cipher.decrypt(enc[self.bs:]))
 
@@ -106,4 +106,5 @@ class AESCipher:
 
     @staticmethod
     def _unpad(s: bytes) -> bytes:
-        return s[: -ord(s[len(s) - 1 :])]
+        # Standard PKCS7 unpadding: last byte indicates padding length.
+        return s[: -s[-1]]

@@ -15,9 +15,11 @@ import asyncio
 import logging
 import os
 
-from dotenv import load_dotenv
-
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv is optional at module level
 
 logging.basicConfig(
     level=logging.INFO,

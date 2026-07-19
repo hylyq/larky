@@ -36,7 +36,7 @@ async def test_backup_notifier():
 
     notifier = BackupNotifier()
 
-    if not notifier.email_enabled:
+    if not notifier.enabled:
         print("⚠️ 邮件功能未配置，跳过邮件发送测试")
         print("   请在 .env 中配置 BACKUP_EMAIL_* 相关变量")
         return False

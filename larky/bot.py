@@ -1,4 +1,5 @@
 import asyncio
+import json
 import time
 from typing import Any, Callable
 
@@ -95,9 +96,11 @@ class LarkBot:
             if data.get("code") != 0:
                 raise TokenError(f"Failed to get access token: {data.get('msg', 'Unknown error')}")
             
+            # Feishu API returns `expire` as TTL in seconds, not a Unix timestamp.
+            # Convert to absolute expiry time for _ensure_valid_token comparison.
             self._access_token = TenantAccessToken(
                 token=data["tenant_access_token"],
-                expire=data["expire"],
+                expire=int(time.time()) + data["expire"],
             )
 
     async def _ensure_valid_token(self) -> str:
@@ -175,7 +178,6 @@ class LarkBot:
             email=email,
         )
         
-        import json
         content = json.dumps({"text": text})
         
         payload = {
@@ -206,7 +208,6 @@ class LarkBot:
         )
         
         if isinstance(content, dict):
-            import json
             content = json.dumps(content)
         
         payload = {

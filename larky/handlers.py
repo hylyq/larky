@@ -115,18 +115,3 @@ class WebhookServer:
         return h.hexdigest() == signature
 
 
-class MessageHandler:
-    def __init__(self, bot: LarkBot) -> None:
-        self.bot = bot
-
-    def __call__(self, handler: Callable[[Message], Any]) -> Callable[[Message], Any]:
-        return self.bot.on_message(handler)
-
-
-class CommandHandler:
-    def __init__(self, bot: LarkBot, command: str) -> None:
-        self.bot = bot
-        self.command = command
-
-    def __call__(self, handler: Callable[[Message, list[str]], Any]) -> Callable[[Message, list[str]], Any]:
-        return self.bot.on_command(self.command)(handler)

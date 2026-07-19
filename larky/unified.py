@@ -396,13 +396,3 @@ class UnifiedBot:
 
 
 # ------------------------------------------------------------------
-# 便捷函数
-# ------------------------------------------------------------------
-
-
-def create_bot(platform: str | None = None) -> UnifiedBot:
-    """创建 UnifiedBot 实例的便捷工厂函数。
-
-    等价于 ``UnifiedBot(platform=platform)``。
-    """
-    return UnifiedBot(platform=platform)

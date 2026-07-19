@@ -1,16 +1,19 @@
-from importlib.metadata import version
+from importlib.metadata import version, PackageNotFoundError
 
-__version__ = version("larky")
+try:
+    __version__ = version("larky")
+except PackageNotFoundError:
+    __version__ = "0.0.0.dev"
 
 from .bot import LarkBot, LarkError, TokenError, APIError, ValidationError
 from .config import LarkConfig
-from .handlers import MessageHandler, CommandHandler, WebhookServer
+from .handlers import WebhookServer
 from .models import Message, MessageType
 from .qq_bot import QQBot, QQError
 from .qq_config import QQConfig
 from .qq_models import QQMessage, QQMessageType
 from .service import UnifiedService, UnifiedClient, BackupNotifier
-from .unified import UnifiedBot, UnifiedMessage, create_bot
+from .unified import UnifiedBot, UnifiedMessage
 from .wechat_bot import WeChatBot, WeChatError
 from .wechat_config import WeChatConfig
 from .wechat_models import WeChatMessage, WeChatAccount
@@ -20,7 +23,6 @@ __all__ = [
     # 统一 API（推荐使用）
     "UnifiedBot",
     "UnifiedMessage",
-    "create_bot",
     # 统一消息服务（多进程架构）
     "UnifiedService",
     "UnifiedClient",
@@ -32,8 +34,6 @@ __all__ = [
     "APIError",
     "ValidationError",
     "LarkConfig",
-    "MessageHandler",
-    "CommandHandler",
     "WebhookServer",
     "Message",
     "MessageType",

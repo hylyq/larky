@@ -32,6 +32,9 @@ class QQBot:
         self._session_id: str | None = None
         self._seq: int | None = None
         self._running = False
+        self._heartbeat_task: asyncio.Task | None = None
+        self._max_reconnect: int = 10
+        self._reconnect_delay: float = 5.0
 
     @classmethod
     def from_env(cls) -> "QQBot":
@@ -112,7 +115,10 @@ class QQBot:
 
         if op == 10:
             self._heartbeat_interval = d.get("heartbeat_interval", 45000)
-            asyncio.create_task(self._heartbeat())
+            # Cancel old heartbeat before creating a new one (avoid duplicates on repeated op 10)
+            if self._heartbeat_task and not self._heartbeat_task.done():
+                self._heartbeat_task.cancel()
+            self._heartbeat_task = asyncio.create_task(self._heartbeat())
             await self._identify()
         elif op == 0:
             if t == "READY":
@@ -151,14 +157,35 @@ class QQBot:
         })
 
     async def run(self) -> None:
+        """Start the bot with reconnection on WebSocket drops."""
         await self._init_session()
-        gateway = (await self._api_request("GET", "/gateway/bot"))["url"]
-        logger.info(f"Connecting to gateway: {gateway}")
-        self._ws = await self._session.ws_connect(gateway)
-        self._running = True
-        async for msg in self._ws:
-            if msg.type == aiohttp.WSMsgType.TEXT:
-                await self._handle_event(json.loads(msg.data))
-            elif msg.type in (aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSED):
-                break
+
+        reconnect_count = 0
+        while reconnect_count < self._max_reconnect:
+            try:
+                gateway = (await self._api_request("GET", "/gateway/bot"))["url"]
+                logger.info("Connecting to gateway: %s", gateway)
+                self._ws = await self._session.ws_connect(gateway)
+                self._running = True
+                reconnect_count = 0  # reset on successful connection
+
+                async for msg in self._ws:
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        await self._handle_event(json.loads(msg.data))
+                    elif msg.type in (aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSED):
+                        break
+            except Exception as e:
+                reconnect_count += 1
+                delay = min(self._reconnect_delay * (2 ** (reconnect_count - 1)), 300)
+                logger.warning(
+                    "QQ WebSocket disconnected (%d/%d), reconnecting in %ds: %s",
+                    reconnect_count, self._max_reconnect, delay, e,
+                )
+                await asyncio.sleep(delay)
+            finally:
+                self._running = False
+                if self._heartbeat_task and not self._heartbeat_task.done():
+                    self._heartbeat_task.cancel()
+
+        logger.error("QQ bot stopped after %d reconnect attempts", self._max_reconnect)
         await self.close()
