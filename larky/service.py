@@ -429,8 +429,7 @@ class UnifiedService:
                 self._status.message_failed += 1
                 logger.error("发送消息失败: %s", e)
                 # 所有平台：入 pending 队列重试
-                payload_bytes = data if isinstance(data, bytes) else data.encode()
-                await self.redis.rpush(self._Q_PENDING, payload_bytes)
+                await self.redis.rpush(self._Q_PENDING, data)
                 logger.info("📦 消息已加入待发队列")
 
     # ------------------------------------------------------------------

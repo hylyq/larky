@@ -1,8 +1,8 @@
-"""量化交易示例 - 使用 WeChatClient 发送/接收消息
+"""量化交易示例 - 使用 UnifiedClient 发送/接收消息（平台无关）
 
 运行前请确保：
 1. Redis 服务已启动
-2. 微信消息服务已启动 (uv run python -m larky.wechat_service)
+2. 统一消息服务已启动 (BOT_PLATFORM=xxx uv run python -m larky)
 """
 
 import asyncio
@@ -12,7 +12,7 @@ from datetime import datetime
 
 from dotenv import load_dotenv
 
-from larky import WeChatClient
+from larky import UnifiedClient
 
 load_dotenv()
 
@@ -29,7 +29,7 @@ async def get_btc_price() -> float:
 
 
 async def main():
-    client = WeChatClient(source="btc-monitor")
+    client = UnifiedClient(source="btc-monitor")
 
     @client.message_handler
     async def on_message(data: dict):

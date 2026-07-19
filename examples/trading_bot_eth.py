@@ -1,6 +1,6 @@
-"""量化交易示例 - ETH 监控服务
+"""量化交易示例 - ETH 监控服务（平台无关）
 
-可以与 btc_monitor.py 同时运行，共享同一个微信消息服务
+可以与 trading_bot_unified.py 同时运行，共享同一个消息服务。
 """
 
 import asyncio
@@ -10,7 +10,7 @@ from datetime import datetime
 
 from dotenv import load_dotenv
 
-from larky import WeChatClient
+from larky import UnifiedClient
 
 load_dotenv()
 
@@ -27,7 +27,7 @@ async def get_eth_price() -> float:
 
 
 async def main():
-    client = WeChatClient(source="eth-monitor")
+    client = UnifiedClient(source="eth-monitor")
 
     @client.message_handler
     async def on_message(data: dict):
